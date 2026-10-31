@@ -143,6 +143,18 @@ class HelperTests(unittest.TestCase):
         self.assertEqual((message["kind"], message["id"], message["data"]), ("command", 2, "new"))
         self.assertFalse(errors)
 
+    def test_v2_geometry_fields_and_legacy_rejection(self):
+        module=self.adapter()
+        message=module["event"]("a"*32,"heartbeat")
+        self.assertEqual(message["v"],2)
+        self.assertEqual((message["pixel_width"],message["pixel_height"]),(0,0))
+        for key in ("pixel_width","pixel_height"):
+            message[key]=65536
+            with self.assertRaises(ValueError):module["validate"](json.dumps(message))
+            message[key]=0
+        message["v"]=1
+        with self.assertRaises(ValueError):module["validate"](json.dumps(message))
+
     def test_stale_endpoint_shows_bounded_error(self):
         module = self.adapter()
         errors = []

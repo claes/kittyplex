@@ -13,7 +13,7 @@ DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "
 
 KINDS = {"bootstrap", "create", "select", "output", "input_credit", "drop",
          "heartbeat", "shutdown", "abort", "finish"}
-FIELDS = {"v", "g", "seq", "kind", "id", "data", "n", "rows", "cols"}
+FIELDS = {"v", "g", "seq", "kind", "id", "data", "n", "rows", "cols", "pixel_width", "pixel_height"}
 
 
 def validate(raw):
@@ -22,13 +22,16 @@ def validate(raw):
     m = json.loads(raw)
     if not isinstance(m, dict) or set(m) != FIELDS:
         raise ValueError("invalid envelope fields")
-    if m["v"] != 1 or not isinstance(m["g"], str) or len(m["g"]) != 32:
-        raise ValueError("incompatible protocol")
+    if type(m["v"]) is not int or m["v"] != 2 or not isinstance(m["g"], str) or len(m["g"]) != 32:
+        raise ValueError("incompatible carrier protocol; install matching termlab 0.3 binaries and Kitty integration")
     if any(c not in "0123456789abcdef" for c in m["g"]):
         raise ValueError("invalid group identifier")
     for key in ("seq", "id", "n", "rows", "cols"):
         if type(m[key]) is not int or not 0 <= m[key] <= 2**53:
             raise ValueError("invalid numeric field")
+    for key in ("rows", "cols", "pixel_width", "pixel_height"):
+        if type(m[key]) is not int or not 0 <= m[key] <= 65535:
+            raise ValueError("invalid terminal dimensions")
     if not isinstance(m["data"], str) or not isinstance(m["kind"], str) or m["kind"] not in KINDS:
         raise ValueError("unsupported carrier operation")
     return m
@@ -42,8 +45,8 @@ def emit(endpoint, message):
 
 
 def event(group, kind, session=0, data=""):
-    return dict(v=1, g=group, seq=0, kind=kind, id=session, data=data,
-                n=0, rows=0, cols=0)
+    return dict(v=2, g=group, seq=0, kind=kind, id=session, data=data,
+                n=0, rows=0, cols=0, pixel_width=0, pixel_height=0)
 
 
 def groups(boss):
@@ -136,7 +139,7 @@ def local(boss, m):
         endpoint = os.path.join(state["directory"], "events.sock")
         opts, cmd = parse_launch_args([
             "--type=" + ("tab" if state["tab"] is None else "window"),
-            "--tab-title=termlab", "--title=termlab " + str(m["id"]),
+            "--tab-title=termlab",
             "--watcher=" + os.path.join(DIRECTORY, "termlab_watcher.py"),
             "--var=termlab_socket=" + endpoint,
             "--var=termlab_group=" + m["g"],
@@ -146,6 +149,8 @@ def local(boss, m):
         view = launch(boss, opts, cmd, target_tab=tab, rc_from_window=carrier)
         if view is None:
             raise ValueError("kitty did not create a session view")
+        # Set an initial child title without pinning an override that blocks OSC 2.
+        view.title_changed(memoryview(("termlab " + str(m["id"])).encode()))
         state["tab"] = view.tabref()
         state["tab"].set_enabled_layouts(["stack"])
         state["views"][m["id"]] = view.id

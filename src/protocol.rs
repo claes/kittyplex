@@ -29,11 +29,13 @@ pub struct Message {
     pub rows: u16,
     #[serde(default)]
     pub cols: u16,
+    pub pixel_width: u16,
+    pub pixel_height: u16,
 }
 impl Message {
     pub fn new(group: &str, kind: &str, id: u64) -> Self {
         Self {
-            v: 1,
+            v: 2,
             g: group.into(),
             seq: 0,
             kind: kind.into(),
@@ -42,6 +44,8 @@ impl Message {
             n: 0,
             rows: 0,
             cols: 0,
+            pixel_width: 0,
+            pixel_height: 0,
         }
     }
     pub fn bytes(&self) -> io::Result<Vec<u8>> {
@@ -56,7 +60,7 @@ impl Message {
             return Err(crate::invalid("frame too large"));
         }
         let message: Self = serde_json::from_slice(bytes)?;
-        if message.v != 1
+        if message.v != 2
             || message.g.len() != 32
             || !message.g.bytes().all(|b| b.is_ascii_hexdigit())
         {
@@ -235,7 +239,7 @@ mod tests {
     fn rejects_oversized_and_incompatible_frames() {
         assert!(Decoder::default().push(&vec![b'x'; FRAME * 2 + 1]).is_err());
         let mut m = Message::new(G, "output", 1);
-        m.v = 2;
+        m.v = 1;
         assert!(Message::parse(&m.bytes().unwrap()).is_err());
         m.data = encode(&vec![0; CHUNK + 1]);
         assert!(m.binary().is_err());
@@ -300,5 +304,28 @@ mod tests {
             assert_eq!(Message::parse(&messages[0].1).unwrap().id, 1);
             assert_eq!(Message::parse(&messages[1].1).unwrap().id, 2);
         }
+    }
+    #[test]
+    fn v2_geometry_is_required_and_roundtrips_without_truncation() {
+        let mut m = Message::new(G, "resize", 9);
+        m.rows = 34;
+        m.cols = 100;
+        m.pixel_width = 1927;
+        m.pixel_height = 1089;
+        let decoded = Message::parse(&m.bytes().unwrap()).unwrap();
+        assert_eq!(
+            (
+                decoded.rows,
+                decoded.cols,
+                decoded.pixel_width,
+                decoded.pixel_height
+            ),
+            (34, 100, 1927, 1089)
+        );
+        let mut value = serde_json::to_value(&m).unwrap();
+        value.as_object_mut().unwrap().remove("pixel_width");
+        assert!(Message::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        m.v = 1;
+        assert!(Message::parse(&m.bytes().unwrap()).is_err());
     }
 }

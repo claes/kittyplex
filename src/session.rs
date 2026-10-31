@@ -275,6 +275,32 @@ mod tests {
     }
 
     #[test]
+    fn full_winsize_survives_resize() {
+        let session = fresh();
+        let size = libc::winsize {
+            ws_row: 34,
+            ws_col: 100,
+            ws_xpixel: 1007,
+            ws_ypixel: 689,
+        };
+        session.resize(size).unwrap();
+        let mut actual: libc::winsize = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::ioctl(session.as_raw_fd(), libc::TIOCGWINSZ, &mut actual) },
+            0
+        );
+        assert_eq!(
+            (
+                actual.ws_row,
+                actual.ws_col,
+                actual.ws_xpixel,
+                actual.ws_ypixel
+            ),
+            (34, 100, 1007, 689)
+        );
+    }
+
+    #[test]
     fn resize_is_visible_to_child() {
         let mut session = fresh();
         session

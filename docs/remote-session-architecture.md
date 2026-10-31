@@ -591,3 +591,15 @@ them to implement or validate the design.
 - **S10:** [Kitty native screen implementation, upstream master](https://github.com/kovidgoyal/kitty/blob/master/kitty/screen.c).
 - **S11:** [Kitty native terminal parser, upstream master](https://github.com/kovidgoyal/kitty/blob/master/kitty/vt-parser.c).
 - **S12:** [Kitty native screen state, upstream master](https://github.com/kovidgoyal/kitty/blob/master/kitty/screen.h).
+
+
+## Implementation compatibility follow-up (termlab 0.3)
+
+Approach 1 uses carrier v2 to preserve the complete four-field PTY window size,
+including pixels. This is required for native graphics clients such as `kitten
+icat`, even when application output itself passes through unchanged. See the
+[carrier reference](original-terminal-carrier.md) for the implemented transport
+and [Kitty compatibility matrix](kitty-compatibility.md) for evidence and remaining
+requirements. The original terminal remains the only SSH transport. No terminal
+emulator, extra SSH connection, filesystem bridge, or desktop helper service was
+added. Approach 2 remains an analysis, not an implemented backend.

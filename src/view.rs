@@ -24,6 +24,8 @@ pub fn run(args: &[String]) -> io::Result<()> {
     let size = tty.size()?;
     m.rows = size.ws_row;
     m.cols = size.ws_col;
+    m.pixel_width = size.ws_xpixel;
+    m.pixel_height = size.ws_ypixel;
     channel.send(&m)?;
     let mut output = VecDeque::new();
     let mut credit_pending = 0;
@@ -43,6 +45,8 @@ pub fn run(args: &[String]) -> io::Result<()> {
             let mut m = Message::new(group, "resize", id);
             m.rows = size.ws_row;
             m.cols = size.ws_col;
+            m.pixel_width = size.ws_xpixel;
+            m.pixel_height = size.ws_ypixel;
             channel.send(&m)?;
         }
         for m in channel.pump()? {

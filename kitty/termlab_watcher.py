@@ -9,8 +9,8 @@ def emit(window, kind):
     session = window.user_vars.get("termlab_session")
     if not endpoint or not group or not session:
         return
-    message = dict(v=1, g=group, seq=0, kind=kind, id=int(session),
-                   data="", n=0, rows=0, cols=0)
+    message = dict(v=2, g=group, seq=0, kind=kind, id=int(session),
+                   data="", n=0, rows=0, cols=0, pixel_width=0, pixel_height=0)
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
             client.setblocking(False)

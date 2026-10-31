@@ -7,7 +7,7 @@
       eachSystem = nixpkgs.lib.genAttrs systems;
       packageFor = pkgs: pkgs.rustPlatform.buildRustPackage {
         pname = "termlab";
-        version = "0.2.0";
+        version = "0.3.0";
         src = nixpkgs.lib.cleanSourceWith {
           src = ./.;
           filter = path: type:

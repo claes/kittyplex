@@ -73,20 +73,30 @@ watcher focus updates are advisory and may be coalesced/lost under congestion.
 Management commands include the originating view's ID, while relay EOF provides
 an independent reliable notification of view closure.
 
-## Protocol v1
+## Protocol v2 (termlab 0.3)
 
 Every message is a JSON object with exactly these fields:
 
 | Field | Meaning |
 | --- | --- |
-| `v` | Protocol version, currently `1` |
+| `v` | Protocol version, currently `2` |
 | `g` | 32-character hexadecimal group ID |
 | `seq` | Direction-wide sequence; local callback messages use zero |
 | `kind` | Operation |
 | `id` | Stable session ID; zero for group operations |
 | `data` | Base64 application bytes, or a management-command string |
 | `n` | Credit amount; bootstrap uses heartbeat timeout seconds |
-| `rows`, `cols` | Positive terminal dimensions for readiness/resize |
+| `rows`, `cols` | Positive terminal cell dimensions for readiness/resize |
+| `pixel_width`, `pixel_height` | Unsigned 16-bit pixel dimensions; zero means unknown |
+
+All four dimensions come from the local view PTY’s `TIOCGWINSZ`, are sent on
+readiness and every `SIGWINCH` (including pixel-only changes), and are applied
+unchanged with `TIOCSWINSZ` to the corresponding remote application PTY. Unknown
+pixel dimensions remain zero; the carrier does not invent a cell size. All v2
+messages require the pixel fields, including messages where they are zero.
+Upgrade local/remote binaries and all four integration files together and start
+a fresh Kitty process. The native Kitty remote-control version below is separate
+from termlab’s carrier version. See [compatibility](kitty-compatibility.md).
 
 Controller-to-kitty calls use `ESC P @kitty-cmd JSON ESC \\`, kitty protocol
 version `[0,47,4]`, command `kitten`, and arguments `carrier` plus the serialized
@@ -231,7 +241,16 @@ SSH ProxyCommand, requiring neither root nor a network service. Default demo
 connections do not use this proxy. The latency target is at most 100 ms additional
 p95 response time relative to direct SSH under the same test transport.
 
-### Validation record
+### Current 0.3 validation
+
+The pixel-size regression and application-title override are fixed. The expanded
+[compatibility audit](kitty-compatibility.md) records 16 Rust, 14 Kitty helper,
+11 existing regression and 9 feature-audit cases passing, plus version and delayed
+transport coverage. It distinguishes native-state evidence from manual desktop
+and separate-host checks. Protocol v2 requires upgrading both binaries and all
+four integration files, then starting a fresh Kitty process.
+
+### Initial 0.2 validation record
 
 The initial restricted environment could not bind sockets. After restarting with
 network access, real acceptance tests exposed and led to fixes for:
@@ -256,7 +275,7 @@ Validation on Linux x86_64:
 - Desktop keystrokes and physical display refresh have not been instrumented;
   automated GUI checks use Xvfb. aarch64-linux has not been executed here.
 
-### Measured performance
+### Initial 0.2 measured performance
 
 Kitty 0.47.4, eight sessions, one continuously flooding hidden session, 100 latency
 samples per case. Throughput is a separate 1 MiB transfer after stopping the flood.
@@ -285,6 +304,24 @@ virtual-display checks establish the carrier feasibility gate; desktop-specific
 rendering/input behavior still benefits from the interactive README walkthrough.
 The acceptance suite does not establish every architecture-analysis scenario or
 behavior on every kitty version and platform.
+
+## 0.3 performance follow-up
+
+Two new sequential 100-sample runs use Kitty 0.47.4, eight sessions, the same
+hidden-output load and 20 ms screen polling. These are host-dependent measurements,
+not a controlled comparison isolating the effect of geometry fields. The direct
+SSH timings also differ from the 0.2 records. This update does not tune scheduling.
+
+| Added transport RTT | Direct SSH p95 | Loaded carrier p95 | Added p95 | Carrier throughput |
+| --- | ---: | ---: | ---: | ---: |
+| 0 ms | 134.2 ms | 416.3 ms | 282.1 ms | 197.9 KiB/s |
+| 100 ms | 290.0 ms | 293.5 ms | 3.5 ms | 218.4 KiB/s |
+
+Raw records: [carrier v2 localhost](benchmarks/carrier-v2-localhost.json) and
+[carrier v2 with 100 ms added RTT](benchmarks/carrier-v2-100ms.json). The no-delay
+hidden-flood case exceeds the 100 ms additional-p95 target; the delayed case meets
+it in this run. Neither these results nor the earlier 0.2 results guarantee
+performance on another server. Physical display refresh was not measured.
 
 ## Deferred persistence follow-up
 

@@ -60,14 +60,14 @@ class StartupTests(unittest.TestCase):
 
 
 @unittest.skipUnless(CAN_BIND, "environment denies Unix/localhost socket binding; real SSH/kitty E2E not run")
-class CarrierTests(unittest.TestCase):
+class KittySSHCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.xvfb = None
         cls.display = os.environ.get("DISPLAY")
         if shutil.which("Xvfb"):
             read_fd, write_fd = os.pipe()
-            cls.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+            cls.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1280x800x24", "-noreset", "-nolisten", "tcp"],
                                         pass_fds=(write_fd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             os.close(write_fd)
             import select
@@ -88,7 +88,7 @@ class CarrierTests(unittest.TestCase):
             raise unittest.SkipTest("no graphical display or Xvfb; real kitty E2E not run")
 
     def setUp(self):
-        self.fixture = Fixture(BINARY, ROOT / "kitty", rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"))
+        self.fixture = Fixture(BINARY, ROOT / "kitty", rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"), features=getattr(self, "features", False))
         self.fixture.__enter__()
         self.addCleanup(self.cleanup)
         self.control = self.fixture.directory / "test-control.sock"
@@ -107,8 +107,9 @@ class CarrierTests(unittest.TestCase):
             options += ["--override", "linux_display_server=x11"]
         public_key = self.fixture.directory / "kitty-public-key"
         entry = self.fixture.directory / "test-entry.py"
-        entry.write_text("import os, pathlib, sys\npathlib.Path(" + repr(str(public_key)) +
-                         ").write_text(os.environ['KITTY_PUBLIC_KEY'])\nos.execvp(sys.argv[1], sys.argv[1:])\n")
+        entry.write_text("import os, pathlib, sys\np = pathlib.Path(" + repr(str(public_key)) +
+                         ")\nt = p.with_suffix('.tmp')\nt.write_text(os.environ['KITTY_PUBLIC_KEY'])\n"
+                         "t.replace(p)\nos.execvp(sys.argv[1], sys.argv[1:])\n")
         self.process = subprocess.Popen(self.fixture.kitty + options + [shutil.which("python3"), str(entry)] + self.fixture.command, env=env,
                                         stdout=log, stderr=log, start_new_session=True)
         self.wait_for(public_key.exists, timeout=15)
@@ -140,7 +141,7 @@ class CarrierTests(unittest.TestCase):
         self.fixture.__exit__(None, None, None)
 
     def rpc(self, cmd, payload):
-        response_expected = cmd != "send-text"
+        response_expected = cmd not in {"send-text", "send-key"}
         command = dict(cmd=cmd, version=[0, 47, 4], no_response=not response_expected, payload=payload)
         wire = b"\x1bP@kitty-cmd" + json.dumps(self.encrypt(command)).encode() + b"\x1b\\"
         with socket.socket(socket.AF_UNIX) as client:
@@ -200,6 +201,13 @@ class CarrierTests(unittest.TestCase):
         self.wait_text(new, "remote session")
         return new
 
+    def probe(self, window, operation, *args):
+        data=self.rpc("kitten",dict(match=f"id:{window}",kitten=str(ROOT / "tests/kitty_probe.py"),args=[operation,*map(str,args)]))
+        return json.loads(data)
+
+
+
+class CarrierTests(KittySSHCase):
     def test_independent_screens_hidden_output_and_native_focus(self):
         self.send(self.first, "printf 'FIRST_%s\\n' SCREEN\n")
         self.wait_text(self.first, "FIRST_SCREEN")

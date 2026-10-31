@@ -307,7 +307,7 @@ impl Remote {
         let v: serde_json::Value = serde_json::from_slice(bytes)?;
         if v["ok"] != true {
             return Err(io::Error::other(format!(
-                "kitty rejected carrier: {}",
+                "kitty rejected carrier (requires matching termlab 0.3 / carrier v2 binaries and Kitty integration): {}",
                 v["error"]
             )));
         }
@@ -502,8 +502,8 @@ fn size(m: &Message) -> io::Result<libc::winsize> {
     Ok(libc::winsize {
         ws_row: m.rows,
         ws_col: m.cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
+        ws_xpixel: m.pixel_width,
+        ws_ypixel: m.pixel_height,
     })
 }
 

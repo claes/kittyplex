@@ -8,3 +8,4 @@ cargo test --locked
 cargo build --locked
 kitty +runpy 'import runpy; runpy.run_path("tests/kitty_config.py", run_name="__main__")'
 python3 tests/integration.py "$@"
+python3 tests/compatibility.py

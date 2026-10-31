@@ -16,9 +16,10 @@ import time
 
 
 class Fixture:
-    def __init__(self, binary, integration, rtt_ms=0):
+    def __init__(self, binary, integration, rtt_ms=0, features=False):
         self.binary = str(Path(binary).resolve())
         self.integration = Path(integration).resolve()
+        self.features = features
         self.rtt_ms = float(rtt_ms)
         if not 0 <= self.rtt_ms <= 2000:
             raise ValueError("test RTT must be between 0 and 2000 ms")
@@ -116,6 +117,13 @@ if [ -z "${TERMLAB_SESSION:-}" ]; then
     printf '\\nBack in the original SSH shell. Type exit to finish the demo.\\n'
 fi
 """)
+        if self.features:
+            from feature_demo import assets
+            media = assets(root / "feature-assets")
+            command = shlex.join([shutil.which("python3"), str(Path(__file__).with_name("feature_demo.py")), "--show", str(media)])
+            with (root / "bashrc").open("a") as rc:
+                rc.write("\ntermlab-features() { " + command + "; }\n")
+                rc.write("if [ -n \"${TERMLAB_SESSION:-}\" ]; then echo 'Run termlab-features for image, sizing and input checks.'; fi\n")
         shell = root / "shell"
         shell.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(shutil.which("bash")) +
                          " --noprofile --rcfile " + shlex.quote(str(root / "bashrc")) + " -i\n")
@@ -150,6 +158,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True)
     parser.add_argument("--integration", required=True)
+    parser.add_argument("--features", action="store_true", help="include guided Kitty feature checks and temporary images")
     args = parser.parse_args()
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         parser.exit(1, "A graphical session is required. Run the demo from your desktop terminal.\n")
@@ -159,7 +168,7 @@ def main():
           "Run vim in one session, switch away and back; its screen should persist.\n"
           "Hidden output: for i in $(seq 1 100); do echo counter-$i; sleep .1; done\n"
           "Quit with Ctrl-Shift-M, q, then type exit in the original SSH shell.", flush=True)
-    with Fixture(args.binary, args.integration) as fixture:
+    with Fixture(args.binary, args.integration, features=args.features) as fixture:
         print(f"Fixture logs: {fixture.directory}", flush=True)
         log = open(fixture.directory / "kitty.log", "wb")
         fixture.logs.append(log)

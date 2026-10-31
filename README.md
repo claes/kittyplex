@@ -73,6 +73,27 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
    working echo, Enter, and line editing. Run `echo restored`, then `exit` to
    close the demo and clean up its fixture.
 
+## Kitty features and graphics
+
+```sh
+./scripts/demo.sh --features
+# In a managed session:
+termlab-features
+```
+
+This generates temporary PNG/GIF assets and prints commands for checking images,
+large streamed transfers, animation, keyboard input, and sizing. Switch between
+sessions while an image is visible, then resize or change the font size and repeat.
+The [Kitty compatibility reference](docs/kitty-compatibility.md) records automated
+coverage, manual checks, and remote filesystem and desktop integration limits.
+
+Version 0.3 transports pixel dimensions as well as rows and columns, fixing
+`kitten icat` reporting that the terminal cannot report its size in pixels.
+Upgrade **both local and remote binaries and all four Kitty integration files**
+together. Carrier protocol v2 is incompatible with v1. End existing groups and
+start a **fresh Kitty process** after upgrading: reloading configuration alone
+can retain cached Python authorization code.
+
 ## Install for a real remote server
 
 Linux and kitty 0.47.4 (the pinned Nix version) are the implementation baseline;
@@ -81,8 +102,8 @@ binary with Rust 1.85 or newer:
 
 ```sh
 cargo build --release --locked
-# Or build the package and integration files:
-nix build
+# Or build the package and integration files, including new working-tree files:
+nix build path:.
 ```
 
 Install `termlab` on PATH **locally and remotely**, using the matching source
@@ -184,10 +205,11 @@ nix develop --command ./scripts/test.sh
 ```
 
 This runs formatting, Clippy, Rust codec/PTY tests, real kitty configuration and
-authorization tests, and the real SSH/kitty integration suite. The latter uses an
+authorization tests, the real SSH/kitty integration suite, and the
+[Kitty feature audit](docs/kitty-compatibility.md). The GUI suites use an
 isolated virtual display when Xvfb is available. It reports explicit skips when
 socket binding or a graphical display is unavailable; a skip is not an E2E pass.
-`nix flake check` builds the package and checks Python syntax; it does not run the
+`nix flake check path:.` builds the package and checks Python syntax; it does not run the
 graphical acceptance suite.
 
 For optional measurements against direct SSH, using eight sessions and hidden
@@ -203,10 +225,11 @@ for the longer measurement used in the implementation reference. `--rtt-ms 100` 
 delay. Screen polling has 20 ms resolution. These are local automated
 measurements, not a guarantee for every server or network.
 
-Measured with eight sessions and one hidden flood: added p95 latency was 55 ms
-with 100 ms injected RTT, and 156 ms on localhost. Carrier throughput was about
-219–261 KiB/s. The localhost flood case remains above the 100 ms latency target;
-see the [raw results and limitations](docs/original-terminal-carrier.md#measured-performance).
+The latest 0.3 measurements use eight sessions and one hidden flood. The
+localhost case still exceeds the 100 ms additional-p95 latency target; the
+100 ms injected-RTT case meets it in this run. See the
+[raw results and limitations](docs/original-terminal-carrier.md#03-performance-follow-up).
+
 
 To run acceptance tests over the same delayed transport:
 
