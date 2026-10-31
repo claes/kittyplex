@@ -603,3 +603,13 @@ and [Kitty compatibility matrix](kitty-compatibility.md) for evidence and remain
 requirements. The original terminal remains the only SSH transport. No terminal
 emulator, extra SSH connection, filesystem bridge, or desktop helper service was
 added. Approach 2 remains an analysis, not an implemented backend.
+
+
+### Native tab presentation follow-up
+
+The current approach-1 adapter presents each session in its own native Kitty tab,
+rather than the shared stack tab considered above. Window IDs still route session
+traffic, and the original SSH carrier remains open in its original tab. Native
+tab focus uses the existing watcher; carrier protocol v2 is unchanged. See the
+[implementation reference](original-terminal-carrier.md#native-tab-navigation-and-ownership)
+for ordering, ownership and cleanup behavior.

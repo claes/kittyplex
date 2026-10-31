@@ -1,7 +1,7 @@
 # Original terminal carrier: implementation reference
 
 Status: experimental implementation with real SSH/kitty acceptance tests and
-recorded performance measurements. Updated 2026-10-31. The pinned Nix shell uses
+recorded performance measurements. Updated 2026-11-01. The pinned Nix shell uses
 kitty 0.47.4; initial API inspection also used 0.49.1.
 
 ## Decisions and ownership
@@ -16,9 +16,12 @@ The original terminal, including an existing ordinary SSH connection, carries al
 traffic. No separate SSH login per view, port forwarding, ControlMaster, TCP
 service, public kitty socket, screen replay, synthetic resize, or terminal
 emulation is introduced. The original window remains open in its original tab;
-a new stack-layout tab contains session views.
+each session view has its own native Kitty tab in the carrier’s OS window.
+New tabs append to that window’s tab list. Tab titles follow the session window
+(initially `termlab N`), including application-supplied OSC titles. User tab-bar
+settings and layouts are respected.
 
-Linux, one controller, matching protocol-v1 components, and at most eight live
+Linux, one controller, matching protocol-v2 components, and at most eight live
 sessions are the initial limits. Closing a view closes its remote session.
 Controller/transport loss ends the entire group. Native virtual terminals inside
 kitty remain the deferred alternative described in the architecture analysis.
@@ -54,7 +57,8 @@ Remote paths and remote environment variables never select the local executable.
    `send-text` against the carrier window. This becomes ordinary SSH input.
 4. The controller requests a view. The broker invokes the local adapter through
    its private FD. The adapter launches a normal kitty window running the Rust
-   relay, registers watcher variables, and selects stack layout.
+   relay in a new tab and registers watcher variables. The carrier tab selects
+   the target OS window even when an unrelated tab or OS window is active.
 5. The relay enters raw mode, connects to the broker, and reports readiness and
    dimensions. Only then does the controller create the corresponding remote PTY
    and shell.
@@ -72,6 +76,21 @@ retry response. Management-send failures produce an error so the user can retry;
 watcher focus updates are advisory and may be coalesced/lost under congestion.
 Management commands include the originating view's ID, while relay EOF provides
 an independent reliable notification of view closure.
+
+## Native tab navigation and ownership
+
+Each session starts in a separate tab; no shared-tab object or forced stack
+layout is retained. Window IDs still route all transport and management traffic.
+Native tab navigation reports focus through the existing watcher. Termlab next,
+previous and numbered selection use creation order within one group, independently
+of native tab reordering. Ordinary tabs are outside that navigation.
+
+Closing a session tab closes its relay and remote session. Closing the last
+session ends the group and returns to the original carrier. Group cleanup closes
+only registered view windows; ordinary windows manually added to those tabs
+remain. Carrier loss and explicit quit retain their existing lifecycle rules.
+The CLI and protocol v2 are unchanged. Install the updated integration and start
+a fresh Kitty process; live conversion of existing groups is not supported.
 
 ## Protocol v2 (termlab 0.3)
 
@@ -245,8 +264,9 @@ p95 response time relative to direct SSH under the same test transport.
 
 The pixel-size regression and application-title override are fixed. The expanded
 [compatibility audit](kitty-compatibility.md) records 16 Rust, 14 Kitty helper,
-11 existing regression and 9 feature-audit cases passing, plus version and delayed
-transport coverage. It distinguishes native-state evidence from manual desktop
+13 regression (including native-tab lifecycle/navigation) and 9 feature-audit
+cases passing on Kitty 0.47.4. Focused native-tab and graphics/input checks also
+pass on Kitty 0.49.1 and under added transport delay. It distinguishes native-state evidence from manual desktop
 and separate-host checks. Protocol v2 requires upgrading both binaries and all
 four integration files, then starting a fresh Kitty process.
 
@@ -307,7 +327,8 @@ behavior on every kitty version and platform.
 
 ## 0.3 performance follow-up
 
-Two new sequential 100-sample runs use Kitty 0.47.4, eight sessions, the same
+These measurements precede the native-tab presentation change.
+Two sequential 100-sample runs use Kitty 0.47.4, eight sessions, the same
 hidden-output load and 20 ms screen polling. These are host-dependent measurements,
 not a controlled comparison isolating the effect of geometry fields. The direct
 SSH timings also differ from the 0.2 records. This update does not tune scheduling.

@@ -47,8 +47,9 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
    ```
 
 2. Press **Ctrl-Shift-M, c**. Run the same `echo`/`tty` command. The session ID
-   and remote PTY must differ. Press **Ctrl-Shift-M, 1** and verify that the
-   first screen is still present.
+   and remote PTY must differ, and a new Kitty tab should appear. Switch back
+   using the tab bar or Kitty’s native tab navigation, then use
+   **Ctrl-Shift-M, 1** and verify that the first screen is still present.
 
 3. Run `vim -Nu NONE -i NONE /tmp/termlab-demo-note` in the first session. Type
    `i`, enter a few lines, then Escape. Switch to session 2 and back using
@@ -67,7 +68,8 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
 5. Resize the kitty window and run `stty size` in each session. Try `sleep 30`,
    Ctrl-Z, `jobs`, `fg`, then Ctrl-C. These must affect the remote foreground
    job while leaving its shell usable. Close one session with `exit`; the
-   remaining session should stay usable.
+   remaining session should stay usable. Alternatively, close its native Kitty
+   tab and verify that only that session ends.
 
 6. Press **Ctrl-Shift-M, q**. You should return to the original SSH shell with
    working echo, Enter, and line editing. Run `echo restored`, then `exit` to
@@ -82,8 +84,10 @@ termlab-features
 ```
 
 This generates temporary PNG/GIF assets and prints commands for checking images,
-large streamed transfers, animation, keyboard input, and sizing. Switch between
-sessions while an image is visible, then resize or change the font size and repeat.
+large streamed transfers, animation, keyboard input, and sizing. Create two
+sessions and display different images; switch using both the Kitty tab bar and
+Ctrl-Shift-M shortcuts. Clear one image and check that the other remains, then
+resize or change the font size and repeat.
 The [Kitty compatibility reference](docs/kitty-compatibility.md) records automated
 coverage, manual checks, and remote filesystem and desktop integration limits.
 
@@ -138,8 +142,15 @@ termlab
 No forwarding configuration, ControlMaster, public-key environment forwarding,
 additional SSH connections, or kitty patches are required. The original SSH
 window remains the carrier in its original tab. Session views appear in a
-separate stack-layout tab; keep the carrier window open until the group ends.
+separate native Kitty tab for each session; keep the carrier window open until
+the group ends. New session tabs are appended in the carrier’s Kitty OS window.
+They start with a `termlab N` title and follow application title changes. Your
+Kitty tab-bar settings control their appearance.
 The same integration also supports running `termlab` locally inside kitty.
+
+Tab support uses the existing carrier protocol v2 and CLI. Copy the updated
+integration files and start a fresh Kitty process; existing groups are not
+converted to tabs while running.
 
 ## Controls and lifecycle
 
@@ -158,8 +169,13 @@ application input. Change both `ctrl+shift+m` mappings to customize the prefix.
 
 Each new session starts `$SHELL -i`, falling back to `/bin/sh -i`, inheriting the
 controller's initial directory and environment. Native kitty focus changes are
-synchronized, and management commands identify their originating session.
-Closing a view closes its remote session; exiting the last shell ends the group.
+synchronized, including tab clicks and native Kitty next/previous-tab navigation.
+Termlab’s next/previous and numbered shortcuts stay within their own group and
+use session creation order; manually reordering tabs does not renumber sessions.
+Management commands identify their originating session.
+Closing a session tab closes its remote session; exiting the last shell ends
+the group. Quitting closes only termlab’s session views, preserving unrelated
+tabs and ordinary windows you manually added.
 Eight simultaneous sessions are supported initially.
 
 **There is no detach/reattach or persistence after connection loss.** Closing the

@@ -162,8 +162,15 @@ class KittySSHCase(unittest.TestCase):
         return response.get("data")
 
     def windows(self):
-        return [window for oswindow in json.loads(self.rpc("ls", {}))
+        return [dict(window, tab_id=tab["id"], tab_title=tab["title"],
+                     tab_is_active=tab["is_active"], os_window_id=oswindow["id"])
+                for oswindow in json.loads(self.rpc("ls", {}))
                 for tab in oswindow["tabs"] for window in tab["windows"]]
+
+    def active_window_id(self, os_window_id=None):
+        return next((w["id"] for w in self.windows()
+                     if w["tab_is_active"] and w["is_active"]
+                     and (os_window_id is None or w["os_window_id"] == os_window_id)), None)
 
     def views(self):
         return [window for window in self.windows() if "termlab_session" in window.get("user_vars", {})]
@@ -208,6 +215,82 @@ class KittySSHCase(unittest.TestCase):
 
 
 class CarrierTests(KittySSHCase):
+    def test_native_tabs_titles_navigation_and_creation_order(self):
+        first = next(w for w in self.views() if w["id"] == self.first)
+        carrier = next(w for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        self.assertEqual(first["tab_title"], "termlab 1")
+        second = self.create(self.first)
+        windows = self.windows()
+        second_view = next(w for w in windows if w["id"] == second)
+        self.assertEqual(len({carrier["tab_id"], first["tab_id"], second_view["tab_id"]}), 3)
+        self.assertEqual({w["os_window_id"] for w in windows}, {carrier["os_window_id"]})
+        self.assertTrue(all(sum(v["tab_id"] == w["tab_id"] for v in windows) == 1 for w in self.views()))
+        self.assertEqual(self.active_window_id(), second)
+
+        # The fixture server is on this machine. Discover its actual remote
+        # control socket once, then query it without injecting management input.
+        path = self.fixture.directory / "remote-control-path"
+        prompts = self.text(self.first).count("remote session 1")
+        self.send(self.first, "printf '%s' \"$TERMLAB_SOCKET\" >" + shlex.quote(str(path)) + "\n")
+        self.wait_for(lambda: path.exists() and path.read_text())
+        self.wait_for(lambda: self.text(self.first).count("remote session 1") > prompts)
+        def status():
+            text = subprocess.check_output([BINARY, "ctl", "--socket", path.read_text(), "status"], timeout=5).decode()
+            return dict(item.split("=", 1) for item in text.split())
+
+        self.rpc("focus-tab", dict(match=f'id:{first["tab_id"]}'))
+        self.wait_for(lambda: self.active_window_id() == self.first and status()["active"] == "1")
+        self.rpc("action", dict(action="next_tab", match_window=f"id:{self.first}"))
+        self.wait_for(lambda: self.active_window_id() == second and status()["active"] == "2")
+        self.rpc("action", dict(action="previous_tab", match_window=f"id:{second}"))
+        self.wait_for(lambda: self.active_window_id() == self.first and status()["active"] == "1")
+        self.manage(self.first, "next")
+        self.wait_for(lambda: self.active_window_id() == second)
+        self.rpc("action", dict(action="move_tab_backward", match_window=f"id:{second}"))
+        self.assertEqual([w["id"] for w in self.views()], [second, self.first])
+        self.manage(second, "select", "1")
+        self.wait_for(lambda: self.active_window_id() == self.first)
+        self.manage(self.first, "select", "2")
+        self.wait_for(lambda: self.active_window_id() == second)
+        self.assertEqual(status()["ids"], "1,2")
+        self.send(second, "printf '\\033]2;session-tab-title\\007'\n")
+        self.wait_for(lambda: next(w for w in self.views() if w["id"] == second)["tab_title"] == "session-tab-title")
+
+    def test_tab_creation_and_cleanup_preserve_unrelated_windows(self):
+        carrier = next(w for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        first = next(w for w in self.views() if w["id"] == self.first)
+        # Even when another OS window is selected, create in the carrier's OS window.
+        unrelated = int(self.rpc("launch", dict(type="os-window", args=[shutil.which("sleep"), "120"])))
+        second = self.create(self.first)
+        second_view = next(w for w in self.views() if w["id"] == second)
+        self.assertEqual(second_view["os_window_id"], carrier["os_window_id"])
+        self.assertEqual(self.active_window_id(carrier["os_window_id"]), second)
+        self.assertEqual(next(w for w in self.windows() if w["id"] == second)["tab_id"],
+                         [w for w in self.windows() if w["os_window_id"] == carrier["os_window_id"]][-1]["tab_id"])
+        self.rpc("focus-window", dict(match=f"id:{unrelated}"))
+        self.assertEqual(len(self.views()), 2)
+        # An ordinary window manually added to a session tab is not owned by termlab.
+        ordinary = int(self.rpc("launch", dict(type="window", match=f'id:{first["tab_id"]}',
+                       args=[shutil.which("sleep"), "120"])))
+        self.assertEqual(next(w for w in self.windows() if w["id"] == ordinary)["tab_id"], first["tab_id"])
+        self.rpc("close-tab", dict(match=f'id:{second_view["tab_id"]}'))
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.manage(self.first, "quit")
+        self.wait_for(lambda: not self.views())
+        self.wait_text(carrier["id"], "remote session carrier")
+        self.assertEqual(self.active_window_id(carrier["os_window_id"]), carrier["id"])
+        self.assertTrue({carrier["id"], unrelated, ordinary} <= {w["id"] for w in self.windows()})
+        self.rpc("close-window", dict(match=f"id:{ordinary}"))
+        self.rpc("close-window", dict(match=f"id:{unrelated}"))
+        self.send(carrier["id"], "termlab\n")
+        self.wait_for(lambda: len(self.views()) == 1)
+        last = self.views()[0]
+        self.wait_text(last["id"], "remote session 1")
+        prompts = self.text(carrier["id"]).count("remote session carrier")
+        self.rpc("close-tab", dict(match=f'id:{last["tab_id"]}'))
+        self.wait_for(lambda: not self.views())
+        self.wait_for(lambda: self.text(carrier["id"]).count("remote session carrier") > prompts)
+
     def test_independent_screens_hidden_output_and_native_focus(self):
         self.send(self.first, "printf 'FIRST_%s\\n' SCREEN\n")
         self.wait_text(self.first, "FIRST_SCREEN")
@@ -226,7 +309,7 @@ class CarrierTests(KittySSHCase):
         self.assertIn("SECOND_SCREEN", self.text(second))
         self.rpc("focus-window", dict(match=f"id:{self.first}"))
         self.manage(self.first, "next")
-        self.wait_for(lambda: any(w["id"] == second and w["is_active"] for w in self.views()))
+        self.wait_for(lambda: self.active_window_id() == second)
 
     def test_terminal_query_job_control_and_exit_drain(self):
         # Bash read receives the DSR reply produced by this session's kitty screen.

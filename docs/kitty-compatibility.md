@@ -23,7 +23,8 @@ Python authorization code. Mixed versions are rejected; v1 is not negotiated.
 Kitty's native RC version `[0,47,4]` is independent of carrier v2.
 
 The initial session title is now a child title, rather than a fixed override,
-so applications can update it using OSC 2. The group tab keeps its termlab label.
+so applications can update it using OSC 2. Each session has a separate native
+Kitty tab whose title follows the window title; no fixed tab title overrides it.
 
 ## Automated evidence and remaining checks
 
@@ -35,6 +36,7 @@ screen state, graphics storage and placements, not physical monitor output.
 
 | Feature | Automated evidence | Remaining interactive check / qualification |
 | --- | --- | --- |
+| Native tabs | Separate tab per session; native and termlab navigation, creation-order numbering, title updates, tab closure and group cleanup | Tab-bar appearance and mouse clicks follow your Kitty settings |
 | PTY geometry | All four fields match the corresponding local PTY; visible/hidden views resize; font and pixel-only changes propagate | Repeat on the real remote machine and desktop |
 | Default `kitten icat image.png` | Exact command, stdout attached to terminal, image stored in native graphics manager; ordinary SSH baseline | Localhost shares filesystems; genuinely separate-host auto-detection is a separate check below |
 | Streamed graphics | PNG larger than the 256 KiB credit window; native image dimensions checked | Large images remain subject to carrier bandwidth/latency |
@@ -60,16 +62,26 @@ supported or unsupported. There is no claim of universal Kitty feature parity.
 ## Validation record: 2026-11-01 (Europe/Stockholm)
 
 Linux x86_64: 16 Rust tests, 14 Kitty helper/configuration/authorization tests,
-11 existing SSH/startup regression tests and all 9 feature-audit tests passed.
+13 SSH/startup regression tests (including two native-tab cases) and all
+9 feature-audit tests passed on Kitty 0.47.4.
 Formatting and Clippy passed. The feature audit passed on pinned Kitty 0.47.4;
 the same cases passed on Kitty 0.49.1 across the audit and focused reruns.
 Three geometry/graphics cases also passed with 100 ms added transport RTT.
-Nix package and Python checks passed; the final packaged binary passed the
-feature-demo and metadata cases. New 100-sample benchmark records are linked in
+Nix package and Python checks passed; the current packaged integration
+and demo scripts match the tested source, and the packaged version command runs.
+The preceding graphics audit also checked its packaged binary’s feature-demo
+and metadata cases. Historical 100-sample benchmark records are linked in
 the [carrier reference](original-terminal-carrier.md#03-performance-follow-up);
 the localhost hidden-flood latency target remains unmet.
 Real desktop delivery, a truly separate
 remote filesystem and aarch64 execution were not tested.
+
+The native-tab follow-up reran the complete 52-test suite on Kitty 0.47.4.
+Both new tab cases plus default/streamed graphics, keyboard/paste/focus and pixel
+resize cases passed on Kitty 0.49.1. Both tab cases and streamed graphics/pixel
+resize cases also passed with 100 ms added SSH RTT on Kitty 0.47.4. Nix checks
+passed; no carrier protocol or Rust CLI change was required. Physical tab-bar
+mouse clicks and desktop rendering remain interactive checks.
 
 The audit also corrected test startup synchronization (atomic publication of the
 controller key, native parser readiness before input injection, and no-reset
@@ -110,7 +122,8 @@ nix develop --command env TERMLAB_TEST_RTT_MS=100 python3 tests/compatibility.py
 In the demo's managed session run `termlab-features`. It prints all four PTY
 size fields, shows a generated PNG using the ordinary `icat` command and provides
 commands for a large streamed PNG, animated GIF, clear, and `kitten show-key`.
-Create another session, display a different image, switch back, resize and change
+Create another session in its own tab, display a different image, switch back
+using both native Kitty tab navigation and termlab shortcuts, resize and change
 font size. Verify image retention, animation and independent clearing. The assets
 and SSH configuration are temporary; only standard-library Python is added to the
 existing demo tools. `nix run path:.#demo -- --features` is equivalent.

@@ -62,7 +62,7 @@ def start(boss, window, message):
     if not binary:
         raise ValueError("install termlab locally or set TERMLAB_BINARY before starting kitty")
     directory = tempfile.mkdtemp(prefix="termlab-kitty-")
-    state = dict(carrier=window.id, directory=directory, views={}, tab=None,
+    state = dict(carrier=window.id, directory=directory, views={},
                  seq=0, binary=os.path.abspath(binary))
     groups(boss)[message["g"]] = state
     window.set_user_var("termlab_group", message["g"])
@@ -134,25 +134,19 @@ def local(boss, m):
         state["views"] = {sid: wid for sid, wid in state["views"].items() if wid in boss.window_id_map}
         if len(state["views"]) >= 8:
             raise ValueError("maximum eight live views per group")
-        if state["tab"] is not None and not state["views"]:
-            state["tab"] = None
         endpoint = os.path.join(state["directory"], "events.sock")
         opts, cmd = parse_launch_args([
-            "--type=" + ("tab" if state["tab"] is None else "window"),
-            "--tab-title=termlab",
+            "--type=tab", "--location=last",
             "--watcher=" + os.path.join(DIRECTORY, "termlab_watcher.py"),
             "--var=termlab_socket=" + endpoint,
             "--var=termlab_group=" + m["g"],
             "--var=termlab_session=" + str(m["id"]),
             state["binary"], "__view", state["directory"], m["g"], str(m["id"])])
-        tab = state["tab"] or carrier.tabref()
-        view = launch(boss, opts, cmd, target_tab=tab, rc_from_window=carrier)
+        view = launch(boss, opts, cmd, target_tab=carrier.tabref(), rc_from_window=carrier)
         if view is None:
             raise ValueError("kitty did not create a session view")
         # Set an initial child title without pinning an override that blocks OSC 2.
         view.title_changed(memoryview(("termlab " + str(m["id"])).encode()))
-        state["tab"] = view.tabref()
-        state["tab"].set_enabled_layouts(["stack"])
         state["views"][m["id"]] = view.id
     elif m["kind"] == "select":
         window = boss.window_id_map.get(state["views"].get(m["id"]))

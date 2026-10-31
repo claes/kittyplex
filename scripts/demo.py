@@ -163,8 +163,9 @@ def main():
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         parser.exit(1, "A graphical session is required. Run the demo from your desktop terminal.\n")
     print("Starting a private kitty process and real localhost SSH connection.\n"
-          "Ctrl-Shift-M, c: new session; n/p or 1–9: switch; q: quit group.\n"
+          "Ctrl-Shift-M, c: new session tab; n/p or 1–9: switch; q: quit group.\n"
           "Try: echo \"$TERMLAB_SESSION\"; tty\n"
+          "Use the Kitty tab bar or native tab shortcuts too; titles follow applications.\n"
           "Run vim in one session, switch away and back; its screen should persist.\n"
           "Hidden output: for i in $(seq 1 100); do echo counter-$i; sleep .1; done\n"
           "Quit with Ctrl-Shift-M, q, then type exit in the original SSH shell.", flush=True)
