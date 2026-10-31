@@ -1,0 +1,10 @@
+[package]
+name = "termlab"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A small PTY session switcher with kitty-managed shortcuts"
+license = "MIT"
+
+[dependencies]
+libc = "0.2"
