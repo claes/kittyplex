@@ -105,13 +105,6 @@ impl Session {
         Ok(())
     }
 
-    pub fn redraw(&self, size: libc::winsize) -> io::Result<()> {
-        let mut temporary = size;
-        temporary.ws_col = if size.ws_col > 1 { size.ws_col - 1 } else { 2 };
-        self.resize(temporary)?;
-        self.resize(size)
-    }
-
     pub fn flush_input(&mut self) -> io::Result<()> {
         if self.hung_up {
             self.input.clear();
@@ -119,7 +112,6 @@ impl Session {
         }
         match crate::flush(&mut self.master, &mut self.input) {
             Err(error) if matches!(error.raw_os_error(), Some(libc::EIO | libc::EPIPE)) => {
-                self.hung_up = true;
                 self.input.clear();
                 Ok(())
             }
@@ -127,6 +119,21 @@ impl Session {
         }
     }
 
+    pub fn read_chunk(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self.master.read(buffer) {
+            Ok(0) => {
+                self.hung_up = true;
+                Ok(0)
+            }
+            Err(e) if e.raw_os_error() == Some(libc::EIO) => {
+                self.hung_up = true;
+                Ok(0)
+            }
+            result => result,
+        }
+    }
+
+    #[cfg(test)]
     pub fn read_output(&mut self, mut visible: Option<&mut VecDeque<u8>>) -> io::Result<bool> {
         let mut buffer = [0; 8192];
         for _ in 0..8 {
@@ -324,21 +331,31 @@ mod tests {
     }
 
     #[test]
-    fn inactive_output_is_drained() {
+    fn captures_all_output_without_visibility_filtering() {
         let mut session = fresh();
         send(
             &mut session,
-            b"head -c 1048576 /dev/zero; printf 'DRAIN_%s\\n' COMPLETE\n",
+            b"head -c 1048576 /dev/zero; printf 'END_%s\\n' OUTPUT\n",
         );
         let deadline = Instant::now() + Duration::from_secs(3);
-        // Discard the flood, then send a second command once output settles.
-        for _ in 0..100 {
-            session.read_output(None).unwrap();
-            assert!(Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
+        let mut output: Vec<u8> = Vec::new();
+        loop {
+            let mut bytes = [0; 8192];
+            match session.read_chunk(&mut bytes) {
+                Ok(n) => output.extend(&bytes[..n]),
+                Err(e) if crate::transient(&e) => {}
+                Err(e) => panic!("{e}"),
+            }
+            if output[output.len().saturating_sub(64)..]
+                .windows(10)
+                .any(|w| w == b"END_OUTPUT")
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "output stalled");
+            std::thread::sleep(Duration::from_millis(1));
         }
-        send(&mut session, b"printf 'NEXT_%s\\n' COMMAND\n");
-        until(&mut session, "NEXT_COMMAND");
+        assert_eq!(output.iter().filter(|b| **b == 0).count(), 1048576);
     }
 
     #[test]

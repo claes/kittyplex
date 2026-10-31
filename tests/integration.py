@@ -1,317 +1,364 @@
 #!/usr/bin/env python3
-"""Linux PTY integration tests. Run after cargo build: python3 tests/integration.py."""
-
+"""Real kitty + ordinary SSH acceptance tests. Requires socket binding and a display/Xvfb."""
 import base64
-import errno
-import fcntl
+import json
 import os
 from pathlib import Path
-import pty
-import re
-import select
+import secrets
 import shutil
+import shlex
 import signal
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
-import termios
 import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / "target/debug/termlab"
-PROMPT = b"TL_PROMPT> "
+sys.path.insert(0, str(ROOT / "scripts"))
+from demo import Fixture
+
+BINARY = Path(os.environ.get("TERMLAB_TEST_BINARY", ROOT / "target/debug/termlab"))
 
 
-def can_bind_socket():
-    with tempfile.TemporaryDirectory(prefix="termlab-bind-check-") as directory:
-        try:
-            with socket.socket(socket.AF_UNIX) as listener:
-                listener.bind(directory + "/socket")
-            return True
-        except PermissionError:
-            return False
+def can_bind():
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            with socket.socket(socket.AF_UNIX) as sock:
+                sock.bind(directory + "/probe")
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+        return True
+    except PermissionError:
+        return False
 
 
-CAN_BIND = can_bind_socket()
+CAN_BIND = can_bind()
+# Use kitty's own authenticated RC implementation, avoiding a second crypto stack.
+if CAN_BIND:
+    try:
+        from kitty.remote_control import CommandEncrypter
+    except ImportError:
+        os.execvp("kitty", ["kitty", "+runpy",
+            "import runpy; runpy.run_path(" + repr(str(Path(__file__).resolve())) + ", run_name='__main__')", *sys.argv[1:]])
 
 
-def terminal_settings(fd):
-    settings = termios.tcgetattr(fd)
-    # glibc and Python can encode the same input baud rate differently in
-    # c_cflag. Compare speeds through the separate ispeed/ospeed fields,
-    # retaining every other flag and control character in this comparison.
-    settings[2] &= ~getattr(termios, "CIBAUD", 0)
-    return settings
+class StartupTests(unittest.TestCase):
+    def test_help_describes_carrier_and_does_not_require_a_tty(self):
+        result = subprocess.run([BINARY, "--help"], capture_output=True, check=True)
+        self.assertIn(b"kitty-owned", result.stdout)
+        self.assertNotIn(b"Inactive output is discarded", result.stdout)
 
-
-class TerminalApp:
-    def __init__(self, directory, **overrides):
-        self.directory = Path(directory)
-        wrapper = self.directory / "shell"
-        bash = shutil.which("bash")
-        wrapper.write_text(
-            f"#!{sys.executable}\nimport os\nos.execv({bash!r}, "
-            f"[{bash!r}, '--noprofile', '--norc', '-i'])\n"
-        )
-        wrapper.chmod(0o700)
-        env = dict(os.environ, SHELL=str(wrapper), PS1=PROMPT.decode(),
-                   INPUTRC="/dev/null", HISTFILE="/dev/null", TERM="xterm-kitty",
-                   KITTY_WINDOW_ID="test-window")
-        env.pop("TERMLAB_SOCKET", None)
-        env.update(overrides)
-        self.pid, self.fd = pty.fork()
-        if self.pid == 0:
-            # Let the parent snapshot cooked settings before termlab enters raw.
-            time.sleep(0.05)
-            os.execve(BINARY, [str(BINARY)], env)
-        self.original = terminal_settings(self.fd)
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        self.buffer = b""
-        self.waited = False
-        self.endpoint = None
-
-    def start(self):
-        registration = self.until(b"\x07")
-        match = re.search(rb"SetUserVar=termlab_socket=([^\x07]+)", registration)
-        if not match:
-            raise AssertionError(f"Missing socket registration: {registration!r}")
-        self.endpoint = os.fsdecode(base64.b64decode(match[1]))
-        self.until(PROMPT)
-        self.command("stty -echo")
-        return self
-
-    def until(self, marker, timeout=5):
-        deadline = time.monotonic() + timeout
-        while marker not in self.buffer:
-            if time.monotonic() >= deadline:
-                raise AssertionError(f"Timed out waiting for {marker!r}: {self.buffer[-2000:]!r}")
-            if select.select([self.fd], [], [], 0.05)[0]:
-                try:
-                    data = os.read(self.fd, 65536)
-                except OSError as error:
-                    if error.errno == errno.EIO:
-                        raise AssertionError(f"Application exited: {self.buffer!r}") from error
-                    raise
-                if not data:
-                    raise AssertionError("Unexpected PTY EOF")
-                self.buffer += data
-        end = self.buffer.index(marker) + len(marker)
-        data, self.buffer = self.buffer[:end], self.buffer[end:]
-        return data
-
-    def command(self, command):
-        os.write(self.fd, command.encode() + b"\n")
-        return self.until(PROMPT)
-
-    def ctl(self, command):
-        with socket.socket(socket.AF_UNIX) as client:
-            client.settimeout(3)
-            client.connect(self.endpoint)
-            client.sendall(command.encode() + b"\n")
-            return client.recv(4096).decode().strip()
-
-    def status(self):
-        return dict(field.split("=", 1) for field in self.ctl("status").split()[1:])
-
-    def wait(self):
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            pid, status = os.waitpid(self.pid, os.WNOHANG)
-            if pid:
-                self.waited = True
-                return os.waitstatus_to_exitcode(status)
-            # Drain output so normal shutdown can finish flushing.
-            if select.select([self.fd], [], [], 0.02)[0]:
-                try:
-                    self.buffer += os.read(self.fd, 65536)
-                except OSError:
-                    pass
-        raise AssertionError("Application did not exit")
-
-    def close(self):
-        if not self.waited:
-            os.kill(self.pid, signal.SIGTERM)
-            try:
-                self.wait()
-            except AssertionError:
-                os.kill(self.pid, signal.SIGKILL)
-                os.waitpid(self.pid, 0)
-        os.close(self.fd)
-
-
-@unittest.skipUnless(CAN_BIND, "environment denies Unix socket bind")
-class Integration(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="termlab-test-")
-        self.app = TerminalApp(self.temp.name)
-        self.addCleanup(self.temp.cleanup)
-        self.addCleanup(self.app.close)
-        self.app.start()
-
-    def test_sessions_and_cli(self):
-        self.assertIn(b"session=1", self.app.command("printf 'session=%s\\n' \"$TERMLAB_SESSION\""))
-        self.assertIn("active=2 sessions=2", self.app.ctl("new"))
-        self.app.until(PROMPT)
-        self.app.command("stty -echo")
-        self.assertIn(b"session=2", self.app.command("printf 'session=%s\\n' \"$TERMLAB_SESSION\""))
-        self.assertIn("active=1", self.app.ctl("next"))
-        self.app.until(PROMPT)
-        self.assertIn("active=2", self.app.ctl("previous"))
-        self.app.until(PROMPT)
-        self.assertIn("active=1", self.app.ctl("select 1"))
-        self.app.until(PROMPT)
-        result = subprocess.run([BINARY, "ctl", "--socket", self.app.endpoint, "status"], capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(b"sessions=2", result.stdout)
-
-    def test_control_errors_and_partial_clients(self):
-        with socket.socket(socket.AF_UNIX) as partial:
-            partial.connect(self.app.endpoint)
-            partial.sendall(b"sel")
-            self.assertIn("sessions=1", self.app.ctl("status"))
-            for command in ["select 0", "select 999", "select -1", "nonsense", "new extra"]:
-                self.assertTrue(self.app.ctl(command).startswith("ERR "), command)
-            self.assertIn(b"alive", self.app.command("printf 'alive\\n'"))
-
-    def test_background_output_does_not_stall(self):
-        marker = self.app.directory / "finished"
-        program = self.app.directory / "output.py"
-        program.write_text("import os, pathlib, time\ntime.sleep(.2)\n"
-                           "for _ in range(1024): os.write(1, b'x' * 8192)\n"
-                           f"pathlib.Path({str(marker)!r}).touch()\n")
-        os.write(self.app.fd, f"{sys.executable} {program}\n".encode())
-        self.assertIn("active=2", self.app.ctl("new"))
-        self.app.until(PROMPT)
-        deadline = time.monotonic() + 5
-        while not marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        self.assertTrue(marker.exists(), "Inactive output was not drained")
-        self.assertIn("sessions=2", self.app.ctl("status"))
-
-    def test_input_bytes_are_unchanged(self):
-        result = self.app.directory / "bytes"
-        probe = self.app.directory / "probe.py"
-        # Contains legacy Ctrl-B, Ctrl-M, kitty-encoded Ctrl-Shift-M, a
-        # management-looking bracketed paste, and a release event.
-        payload = b"\x02\r\x1b[109;6u\x1b[200~next\nquit\x1b[201~\x1b[109;6:3u"
-        probe.write_text(
-            "import os, pathlib, termios, tty\nold=termios.tcgetattr(0)\n"
-            "tty.setraw(0)\nprint('RAW_READY', flush=True)\ndata=b''\n"
-            f"while len(data)<{len(payload)}: data+=os.read(0,{len(payload)}-len(data))\n"
-            f"pathlib.Path({str(result)!r}).write_bytes(data)\n"
-            "termios.tcsetattr(0,termios.TCSANOW,old)\n"
-        )
-        os.write(self.app.fd, f"{sys.executable} {probe}\n".encode())
-        self.app.until(b"RAW_READY")
-        os.write(self.app.fd, payload)
-        self.app.until(PROMPT)
-        self.assertEqual(result.read_bytes(), payload)
-        self.assertEqual(self.app.status()["sessions"], "1")
-
-    def test_job_control(self):
-        os.write(self.app.fd, b"sleep 30\n")
-        time.sleep(0.1)
-        os.write(self.app.fd, b"\x03")
-        self.app.until(PROMPT)
-        os.write(self.app.fd, b"sleep 30\n")
-        time.sleep(0.1)
-        os.write(self.app.fd, b"\x1a")
-        self.app.until(PROMPT)
-        self.assertIn(b"Stopped", self.app.command("jobs"))
-        os.write(self.app.fd, b"fg\n")
-        time.sleep(0.1)
-        os.write(self.app.fd, b"\x03")
-        self.app.until(PROMPT)
-
-    def test_resize_all_sessions(self):
-        self.app.ctl("new")
-        self.app.until(PROMPT)
-        self.app.command("stty -echo")
-        fcntl.ioctl(self.app.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 37, 101, 0, 0))
-        os.kill(self.app.pid, signal.SIGWINCH)
-        time.sleep(0.1)
-        self.app.buffer = b""
-        self.assertIn(b"37 101", self.app.command("stty size"))
-        self.app.ctl("select 1")
-        self.app.until(PROMPT)
-        self.assertIn(b"37 101", self.app.command("stty size"))
-
-    def test_active_and_last_shell_exit(self):
-        self.app.ctl("new")
-        self.app.until(PROMPT)
-        os.write(self.app.fd, b"exit\n")
-        self.app.until(PROMPT)
-        self.assertEqual(self.app.status()["sessions"], "1")
-        os.write(self.app.fd, b"exit\n")
-        self.assertEqual(self.app.wait(), 0)
-        self.assertEqual(terminal_settings(self.app.fd), self.app.original)
-        self.assertFalse(Path(self.app.endpoint).parent.exists())
-
-    def test_termination_restores_terminal_and_hangs_up_job(self):
-        marker = self.app.directory / "job-pid"
-        self.app.command(f"sleep 30 & echo $! > {marker}")
-        job_pid = int(marker.read_text())
-        self.assertEqual(self.app.ctl("quit"), "OK quitting")
-        self.assertEqual(self.app.wait(), 0)
-        self.assertEqual(terminal_settings(self.app.fd), self.app.original)
-        self.assertFalse(Path(self.app.endpoint).exists())
-        deadline = time.monotonic() + 2
-        while Path(f"/proc/{job_pid}").exists() and time.monotonic() < deadline:
-            # An orphan zombie is already dead, awaiting the host's init reaper.
-            if Path(f"/proc/{job_pid}/stat").read_text().split()[2] == "Z":
-                break
-            time.sleep(0.02)
-        if Path(f"/proc/{job_pid}/stat").exists():
-            self.assertEqual(Path(f"/proc/{job_pid}/stat").read_text().split()[2], "Z")
-
-    def test_sigterm_restores_terminal(self):
-        os.kill(self.app.pid, signal.SIGTERM)
-        self.assertEqual(self.app.wait(), 0)
-        self.assertEqual(terminal_settings(self.app.fd), self.app.original)
-        self.assertFalse(Path(self.app.endpoint).parent.exists())
-
-    def test_independent_instances(self):
-        with tempfile.TemporaryDirectory(prefix="termlab-other-") as directory:
-            other = TerminalApp(directory).start()
-            try:
-                self.assertNotEqual(other.endpoint, self.app.endpoint)
-                self.app.ctl("new")
-                self.assertEqual(other.status()["sessions"], "1")
-                self.assertEqual(self.app.status()["sessions"], "2")
-            finally:
-                other.close()
-
-
-class Startup(unittest.TestCase):
-    def test_non_terminal_rejected(self):
-        result = subprocess.run([BINARY], capture_output=True, env={k: v for k, v in os.environ.items() if k != "TERMLAB_SOCKET"})
+    def test_invalid_heartbeat_and_nested_start_fail(self):
+        result = subprocess.run([BINARY, "--heartbeat-timeout", "1"], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"must be a terminal", result.stderr)
+        self.assertIn(b"at least 10", result.stderr)
+        result = subprocess.run([BINARY], env=dict(os.environ, TERMLAB_SOCKET="/unused"), capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"nested", result.stderr)
 
-    @unittest.skipUnless(CAN_BIND, "environment denies Unix socket bind")
-    def test_exec_failure_restores_terminal(self):
-        with tempfile.TemporaryDirectory(prefix="termlab-fail-") as directory:
-            app = TerminalApp(directory, SHELL="/nonexistent/termlab-shell")
-            try:
-                self.assertEqual(app.wait(), 1)
-                self.assertEqual(terminal_settings(app.fd), app.original)
-            finally:
-                app.close()
 
-    @unittest.skipIf(CAN_BIND, "requires a socket-restricted environment")
-    def test_socket_bind_failure_restores_terminal(self):
-        with tempfile.TemporaryDirectory(prefix="termlab-fail-") as directory:
-            app = TerminalApp(directory)
+@unittest.skipUnless(CAN_BIND, "environment denies Unix/localhost socket binding; real SSH/kitty E2E not run")
+class CarrierTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.xvfb = None
+        cls.display = os.environ.get("DISPLAY")
+        if shutil.which("Xvfb"):
+            read_fd, write_fd = os.pipe()
+            cls.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+                                        pass_fds=(write_fd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.close(write_fd)
+            import select
             try:
-                self.assertEqual(app.wait(), 1)
-                self.assertIn(b"bind control socket", app.buffer)
-                self.assertEqual(terminal_settings(app.fd), app.original)
+                if not select.select([read_fd], [], [], 10)[0]:
+                    raise RuntimeError("Xvfb did not become ready")
+                number = os.read(read_fd, 64).decode().strip()
+                if not number:
+                    raise RuntimeError("Xvfb failed to start")
+                cls.display = ":" + number
             finally:
-                app.close()
+                os.close(read_fd)
+            def stop_display():
+                cls.xvfb.terminate()
+                cls.xvfb.wait(timeout=5)
+            cls.addClassCleanup(stop_display)
+        if not cls.display and not os.environ.get("WAYLAND_DISPLAY"):
+            raise unittest.SkipTest("no graphical display or Xvfb; real kitty E2E not run")
+
+    def setUp(self):
+        self.fixture = Fixture(BINARY, ROOT / "kitty", rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"))
+        self.fixture.__enter__()
+        self.addCleanup(self.cleanup)
+        self.control = self.fixture.directory / "test-control.sock"
+        self.password = secrets.token_hex(24)
+        config = self.fixture.directory / "kitty/kitty.conf"
+        with config.open("a") as stream:
+            # Only the isolated test process gets a test-controller capability.
+            stream.write(f"remote_control_password {self.password} *\n")
+        env = dict(self.fixture.env, LIBGL_ALWAYS_SOFTWARE="1")
+        if self.display:
+            env["DISPLAY"] = self.display
+        log = open(self.fixture.directory / "kitty.log", "wb")
+        self.fixture.logs.append(log)
+        options = ["--listen-on", "unix:" + str(self.control)]
+        if self.display:
+            options += ["--override", "linux_display_server=x11"]
+        public_key = self.fixture.directory / "kitty-public-key"
+        entry = self.fixture.directory / "test-entry.py"
+        entry.write_text("import os, pathlib, sys\npathlib.Path(" + repr(str(public_key)) +
+                         ").write_text(os.environ['KITTY_PUBLIC_KEY'])\nos.execvp(sys.argv[1], sys.argv[1:])\n")
+        self.process = subprocess.Popen(self.fixture.kitty + options + [shutil.which("python3"), str(entry)] + self.fixture.command, env=env,
+                                        stdout=log, stderr=log, start_new_session=True)
+        self.wait_for(public_key.exists, timeout=15)
+        version, key = public_key.read_text().split(":", 1)
+        self.encrypt = CommandEncrypter(base64.b85decode(key), version, self.password)
+        self.wait_for(lambda: len(self.views()) == 1, timeout=35)
+        self.first = self.views()[0]["id"]
+        self.wait_text(self.first, "remote session 1")
+        self.setup_complete = True
+
+    def cleanup(self):
+        outcome = self._outcome.result
+        failed = any(test is self for test, _ in outcome.failures + outcome.errors)
+        process = getattr(self, "process", None)
+        if failed and process and process.poll() is None and hasattr(self, "encrypt"):
+            try:
+                screens = [dict(id=w["id"], user_vars=w.get("user_vars"), text=self.text(w["id"])) for w in self.windows()]
+                (self.fixture.directory / "screens.json").write_text(json.dumps(screens, indent=2))
+            except (OSError, RuntimeError):
+                pass
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        self.fixture.failed = failed or not getattr(self, "setup_complete", False)
+        self.fixture.__exit__(None, None, None)
+
+    def rpc(self, cmd, payload):
+        response_expected = cmd != "send-text"
+        command = dict(cmd=cmd, version=[0, 47, 4], no_response=not response_expected, payload=payload)
+        wire = b"\x1bP@kitty-cmd" + json.dumps(self.encrypt(command)).encode() + b"\x1b\\"
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(5)
+            client.connect(str(self.control))
+            client.sendall(wire)
+            if not response_expected:
+                return None
+            data = b""
+            while b"\x1b\\" not in data:
+                part = client.recv(65536)
+                if not part:
+                    raise RuntimeError("kitty control EOF")
+                data += part
+        response = json.loads(data.split(b"@kitty-cmd", 1)[1].split(b"\x1b\\", 1)[0])
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error", str(response)))
+        return response.get("data")
+
+    def windows(self):
+        return [window for oswindow in json.loads(self.rpc("ls", {}))
+                for tab in oswindow["tabs"] for window in tab["windows"]]
+
+    def views(self):
+        return [window for window in self.windows() if "termlab_session" in window.get("user_vars", {})]
+
+    def wait_for(self, condition, timeout=15):
+        deadline = time.monotonic() + timeout
+        last = None
+        while time.monotonic() < deadline:
+            try:
+                value = condition()
+                if value:
+                    return value
+            except (OSError, RuntimeError) as error:
+                last = error
+            time.sleep(.02)
+        self.fail(f"Timed out; last error: {last}; logs: {self.fixture.directory}")
+
+    def text(self, window):
+        return self.rpc("get-text", dict(match=f"id:{window}", extent="all"))
+
+    def wait_text(self, window, marker, timeout=15):
+        return self.wait_for(lambda: marker in self.text(window), timeout)
+
+    def send(self, window, text):
+        self.rpc("send-text", dict(match=f"id:{window}", data="text:" + text))
+
+    def manage(self, window, *args):
+        self.rpc("kitten", dict(match=f"id:{window}", kitten=str(ROOT / "kitty/termlab.py"), args=list(args)))
+
+    def create(self, window):
+        old = {w["id"] for w in self.views()}
+        self.manage(window, "new")
+        self.wait_for(lambda: len(self.views()) == len(old) + 1)
+        new = next(w["id"] for w in self.views() if w["id"] not in old)
+        self.wait_text(new, "remote session")
+        return new
+
+    def test_independent_screens_hidden_output_and_native_focus(self):
+        self.send(self.first, "printf 'FIRST_%s\\n' SCREEN\n")
+        self.wait_text(self.first, "FIRST_SCREEN")
+        second = self.create(self.first)
+        self.send(second, "printf '\\033[?1049h\\033[2J\\033[HSECOND_%s\\033[?1000h' SCREEN\n")
+        self.wait_text(second, "SECOND_SCREEN")
+        self.wait_for(lambda: next(w for w in self.views() if w["id"] == second)["in_alternate_screen"])
+        self.assertFalse(next(w for w in self.views() if w["id"] == self.first)["in_alternate_screen"])
+        for _ in range(3):
+            self.manage(second, "previous")
+            self.assertIn("FIRST_SCREEN", self.text(self.first))
+            self.manage(self.first, "next")
+            self.assertIn("SECOND_SCREEN", self.text(second))
+        self.send(self.first, "for i in $(seq 1 50); do echo HIDDEN_$i; done\n")
+        self.wait_text(self.first, "HIDDEN_50")
+        self.assertIn("SECOND_SCREEN", self.text(second))
+        self.rpc("focus-window", dict(match=f"id:{self.first}"))
+        self.manage(self.first, "next")
+        self.wait_for(lambda: any(w["id"] == second and w["is_active"] for w in self.views()))
+
+    def test_terminal_query_job_control_and_exit_drain(self):
+        # Bash read receives the DSR reply produced by this session's kitty screen.
+        prompt = "remote session 1"
+        previous_prompt = self.text(self.first).count(prompt)
+        self.send(self.first, "stty -echo -icanon min 1 time 0; printf '\\033[6n'; if IFS= read -r -d R -t 5 reply; then printf 'QUERY_%s_%q\\n' OK \"$reply\"; else echo QUERY_FAILED; fi; stty icanon\n")
+        self.wait_text(self.first, "QUERY_OK_")
+        self.wait_for(lambda: self.text(self.first).count(prompt) > previous_prompt)
+        self.send(self.first, "printf 'JOB_%s\\n' START; sleep 30\n")
+        self.wait_text(self.first, "JOB_START")
+        previous_prompt = self.text(self.first).count(prompt)
+        self.send(self.first, "\x1a")
+        self.wait_text(self.first, "Stopped")
+        self.wait_for(lambda: self.text(self.first).count(prompt) > previous_prompt)
+        previous_job = self.text(self.first).count("sleep 30")
+        self.send(self.first, "fg\n")
+        self.wait_for(lambda: self.text(self.first).count("sleep 30") > previous_job)
+        previous_prompt = self.text(self.first).count(prompt)
+        self.send(self.first, "\x03")
+        self.wait_for(lambda: self.text(self.first).count(prompt) > previous_prompt)
+        self.send(self.first, "printf 'JOB_%s\\n' RESUMED\n")
+        self.wait_text(self.first, "JOB_RESUMED")
+        second = self.create(self.first)
+        self.send(second, "exit\n")
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.manage(self.first, "quit")
+        self.wait_for(lambda: not self.views())
+        carrier = self.windows()[0]["id"]
+        self.wait_text(carrier, "Back in the original SSH shell")
+        self.wait_text(carrier, "remote session carrier")
+        self.send(carrier, "printf 'RESTORED_%s\\n' SHELL\n")
+        self.wait_text(carrier, "RESTORED_SHELL")
+
+    def test_vim_state_and_real_resize(self):
+        self.send(self.first, "vim -Nu NONE -i NONE /tmp/termlab-vim-" + secrets.token_hex(6) + "\n")
+        time.sleep(.3)
+        self.send(self.first, "iVIM_RETAINED_CONTENT\x1b")
+        self.wait_text(self.first, "VIM_RETAINED_CONTENT")
+        second = self.create(self.first)
+        self.manage(second, "previous")
+        self.wait_text(self.first, "VIM_RETAINED_CONTENT")
+        self.send(self.first, ":q!\n")
+        self.wait_text(self.first, "remote session 1")
+        self.rpc("resize-os-window", dict(match=f"id:{second}", action="resize", unit="cells", width=100, height=35))
+        time.sleep(.2)
+        self.send(second, "printf 'SIZE_%s ' NOW; stty size\n")
+        geometry = next(w for w in self.views() if w["id"] == second)
+        self.wait_for(lambda: f"SIZE_NOW {geometry['lines']} {geometry['columns']}" in self.text(second))
+
+    def test_two_groups_do_not_control_each_other(self):
+        self.rpc("launch", dict(type="tab", args=self.fixture.command))
+        self.wait_for(lambda: len(self.views()) == 2, timeout=35)
+        second = next(w for w in self.views() if w["id"] != self.first)
+        first = next(w for w in self.views() if w["id"] == self.first)
+        self.assertNotEqual(first["user_vars"]["termlab_group"], second["user_vars"]["termlab_group"])
+        self.wait_text(second["id"], "remote session 1")
+        self.manage(self.first, "quit")
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.send(second["id"], "printf 'ISOLATED_%s\\n' ALIVE\n")
+        self.wait_text(second["id"], "ISOLATED_ALIVE")
+
+    def test_partial_escape_and_utf8_survive_hidden_switch(self):
+        second = self.create(self.first)
+        self.send(second, "printf 'OTHER_%s\\n' SCREEN\n")
+        self.wait_text(second,"OTHER_SCREEN")
+        self.manage(second,"previous")
+        code = "import os,time; os.write(1,b'PARSER_'+b'READY\\n\\x1b[3'); time.sleep(.5); os.write(1,b'1m\\xe2'); time.sleep(.5); os.write(1,b'\\x82\\xacPARTIAL_'+b'RETAINED\\x1b[0m\\n')"
+        self.send(self.first,"python3 -c " + shlex.quote(code) + "\n")
+        self.wait_text(self.first,"PARSER_READY")
+        self.manage(self.first,"next")
+        self.wait_text(self.first,"€PARTIAL_RETAINED")
+        self.assertIn("OTHER_SCREEN",self.text(second))
+        self.manage(second,"previous")
+        self.assertIn("€PARTIAL_RETAINED",self.text(self.first))
+
+    def test_repeated_quit_and_restart_restores_carrier(self):
+        carrier = next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        view = self.first
+        for iteration in range(3):
+            previous = self.text(carrier).count("remote session carrier")
+            self.manage(view, "quit")
+            self.wait_for(lambda: not self.views())
+            self.wait_for(lambda: self.text(carrier).count("remote session carrier") > previous)
+            self.wait_text(carrier, "remote session carrier")
+            marker = f"RESTORED_{iteration}"
+            self.send(carrier, f"printf 'RESTORED_%s\\n' {iteration}\n")
+            self.wait_text(carrier, marker)
+            if iteration != 2:
+                self.send(carrier, "termlab\n")
+                self.wait_for(lambda: len(self.views()) == 1)
+                view = self.views()[0]["id"]
+                self.wait_text(view, "remote session 1")
+
+    def owned_processes(self, root):
+        pending=[root]
+        seen=set()
+        result=[]
+        while pending:
+            pid=pending.pop()
+            if pid in seen:
+                continue
+            seen.add(pid)
+            try:
+                args=[os.fsdecode(a) for a in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if a]
+                result.append((pid,args))
+                for task in Path(f"/proc/{pid}/task").glob("*/children"):
+                    pending.extend(map(int,task.read_text().split()))
+            except (FileNotFoundError,ProcessLookupError):
+                pass
+        return result
+
+    def check_failure_returns_to_shell(self, root, internal, signum):
+        carrier=next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars",{}))
+        def target():
+            for pid,args in self.owned_processes(root):
+                if args and Path(args[0]).name=="termlab" and (args[1:2]==[internal] if internal else len(args)==1):
+                    return pid
+        pid=self.wait_for(target)
+        os.kill(pid,signum)
+        self.wait_for(lambda:not self.views())
+        self.wait_text(carrier,"remote session carrier")
+        self.send(carrier,"printf 'RECOVERED_%s\\n' SHELL\n")
+        self.wait_text(carrier,"RECOVERED_SHELL")
+
+    def test_broker_crash_cleans_up_and_preserves_shell_input(self):
+        self.check_failure_returns_to_shell(self.process.pid,"__broker",signal.SIGKILL)
+
+    def test_controller_termination_restores_the_shell(self):
+        self.check_failure_returns_to_shell(self.fixture.server.pid,None,signal.SIGTERM)
+
+    def test_view_close_and_carrier_loss_close_the_group(self):
+        second = self.create(self.first)
+        self.rpc("close-window", dict(match=f"id:{second}"))
+        self.wait_for(lambda: len(self.views()) == 1)
+        carrier = next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        self.rpc("close-window", dict(match=f"id:{carrier}"))
+        self.wait_for(lambda: self.process.poll() is not None, timeout=35)
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    result = unittest.main(verbosity=2, exit=False).result
+    if not result.wasSuccessful():
+        raise RuntimeError("integration tests failed")

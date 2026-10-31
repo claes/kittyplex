@@ -19,7 +19,7 @@ pub enum Action {
 }
 
 impl Action {
-    fn parse(request: &str) -> io::Result<Self> {
+    pub fn parse(request: &str) -> io::Result<Self> {
         let parts: Vec<_> = request.split_whitespace().collect();
         match parts.as_slice() {
             ["new"] => Ok(Self::New),

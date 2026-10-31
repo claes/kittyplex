@@ -3,7 +3,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -66,8 +65,6 @@ impl Drop for Signals {
 pub struct Terminal {
     file: File,
     original: libc::termios,
-    registered: bool,
-    display_used: bool,
 }
 
 impl Terminal {
@@ -92,12 +89,7 @@ impl Terminal {
         if unsafe { libc::tcsetattr(file.as_raw_fd(), libc::TCSANOW, &raw) } < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self {
-            file,
-            original,
-            registered: false,
-            display_used: false,
-        })
+        Ok(Self { file, original })
     }
 
     pub fn original(&self) -> &libc::termios {
@@ -112,21 +104,6 @@ impl Terminal {
         size.ws_row = size.ws_row.max(1);
         size.ws_col = size.ws_col.max(1);
         Ok(size)
-    }
-
-    pub fn register(&mut self, socket: &Path) -> io::Result<()> {
-        self.display_used = true;
-        if std::env::var_os("KITTY_WINDOW_ID").is_some() {
-            use std::os::unix::ffi::OsStrExt;
-            let sequence = format!(
-                "\x1b]1337;SetUserVar=termlab_socket={}\x07",
-                base64(socket.as_os_str().as_bytes())
-            );
-            // Mark first so cleanup clears even a partially failed registration.
-            self.registered = true;
-            self.write_bounded(sequence.as_bytes(), Duration::from_secs(1))?;
-        }
-        Ok(())
     }
 
     fn write_bounded(&mut self, mut bytes: &[u8], timeout: Duration) -> io::Result<()> {
@@ -177,40 +154,8 @@ impl Write for Terminal {
 }
 impl Drop for Terminal {
     fn drop(&mut self) {
-        // Restore common display modes left by an interrupted full-screen app.
-        // This is cleanup, not a per-session terminal state reconstruction.
-        if self.display_used {
-            let _ = self.write_bounded(
-            b"\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[=0u",
-            Duration::from_millis(100),
-            );
-        }
-        if self.registered {
-            let _ = self.write_bounded(
-                b"\x1b]1337;SetUserVar=termlab_socket\x07",
-                Duration::from_millis(100),
-            );
-        }
         unsafe {
             libc::tcsetattr(self.as_raw_fd(), libc::TCSANOW, &self.original);
         }
     }
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::new();
-    for chunk in bytes.chunks(3) {
-        let value = ((chunk[0] as u32) << 16)
-            | ((chunk.get(1).copied().unwrap_or(0) as u32) << 8)
-            | chunk.get(2).copied().unwrap_or(0) as u32;
-        for index in 0..4 {
-            output.push(if index > chunk.len() {
-                '='
-            } else {
-                TABLE[((value >> (18 - index * 6)) & 63) as usize] as char
-            });
-        }
-    }
-    output
 }

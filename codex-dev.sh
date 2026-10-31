@@ -21,15 +21,21 @@ cd -- "$termlab_root"
 # --no-daemon starts a server with this dev shell's environment, rather than
 # reusing a shared server that may have started without Rust on PATH.
 # Non-login command shells preserve that PATH instead of resetting it.
-# Networking supports Cargo/Nix downloads and local socket tests. Managed
-# requirements can still restrict it; no sandbox bypass is used here.
+# Use a named profile so file writes stay workspace-scoped while commands can
+# bind TCP/Unix sockets directly (SSH, kitty IPC, and Xvfb). A network proxy
+# cannot carry these listeners. Do not mix this profile with --sandbox or the
+# legacy sandbox_workspace_write settings: those take precedence over profiles.
+# Administrator-managed requirements can still reject or restrict this policy.
 exec nix develop --no-write-lock-file "path:$termlab_root" --command \
     "$termlab_codex" \
     --no-daemon \
     --cd "$termlab_root" \
-    --sandbox workspace-write \
     --ask-for-approval on-request \
-    -c 'sandbox_workspace_write.network_access=true' \
+    -c 'default_permissions="termlab-dev"' \
+    -c 'permissions.termlab-dev.extends=":workspace"' \
+    -c 'permissions.termlab-dev.network.enabled=true' \
+    -c 'permissions.termlab-dev.network.allow_local_binding=true' \
+    -c 'features.network_proxy=false' \
     -c 'allow_login_shell=false' \
     -c 'shell_environment_policy.inherit="all"' \
     "$@"

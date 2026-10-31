@@ -2,6 +2,9 @@
 
 from pathlib import Path
 import runpy
+import json
+import os
+import shutil
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -98,39 +101,122 @@ class MappingTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
-    def test_routes_to_target_window_without_remote_control(self):
-        module = runpy.run_path(str(ROOT / "kitty/termlab.py"))
-        received = []
+    def adapter(self):
+        return runpy.run_path(str(ROOT / "kitty/termlab.py"))
 
+    def test_bootstrap_without_file_global_uses_kitty_config_directory(self):
+        from kitty.constants import config_dir
+        from kitty.window import Watchers
+        module = {"__name__": "termlab_loader_regression"}
+        exec(compile((ROOT / "kitty/termlab.py").read_text(), "termlab.py", "exec"), module)
+        self.assertEqual(module["DIRECTORY"], config_dir)
+        variables = {}
+        window = SimpleNamespace(id=1, user_vars=variables, watchers=Watchers(),
+            set_user_var=lambda key, value: variables.__setitem__(key, value))
+        boss = SimpleNamespace(window_id_map={1: window})
+        m = module["event"]("a" * 32, "bootstrap")
+        m["n"] = 30
+        with patch.dict(os.environ, TERMLAB_BINARY="/tmp/termlab-test-binary"), patch("kitty.launch.launch") as launch:
+            state = module["start"](boss, window, m)
+        self.addCleanup(shutil.rmtree, state["directory"])
+        self.assertIn(os.path.join(config_dir, "termlab.py"), launch.call_args.args[2])
+        self.assertIn("child_death_callback", launch.call_args.kwargs)
+
+    def test_routes_nonblocking_datagram_to_originating_window(self):
+        module = self.adapter()
+        received = []
         class Client:
             def __enter__(self): return self
             def __exit__(self, *args): pass
-            def settimeout(self, value): received.append(("timeout", value))
-            def connect(self, path): received.append(("connect", path))
-            def sendall(self, data): received.append(("send", data))
-            def recv(self, count): return b"OK active=2 sessions=2\n"
-
+            def setblocking(self, value): received.append(("blocking", value))
+            def sendto(self, data, endpoint): received.append((json.loads(data), endpoint))
         errors = []
         boss = SimpleNamespace(window_id_map={
-            1: SimpleNamespace(user_vars={"termlab_socket": "/tmp/first.sock"}),
-            2: SimpleNamespace(user_vars={"termlab_socket": "/tmp/second.sock"}),
+            n: SimpleNamespace(user_vars={"termlab_socket": f"/tmp/{n}.sock",
+                "termlab_group": "a" * 32, "termlab_session": str(n)}) for n in (1, 2)
         }, show_error=lambda *args: errors.append(args))
         with patch.object(module["socket"], "socket", return_value=Client()):
             module["handle_result"](["termlab.py", "new"], None, 2, boss)
-        self.assertIn(("connect", "/tmp/second.sock"), received)
-        self.assertIn(("send", b"new\n"), received)
+        self.assertIn(("blocking", False), received)
+        message, endpoint = received[-1]
+        self.assertEqual(endpoint, "/tmp/2.sock")
+        self.assertEqual((message["kind"], message["id"], message["data"]), ("command", 2, "new"))
         self.assertFalse(errors)
 
     def test_stale_endpoint_shows_bounded_error(self):
-        module = runpy.run_path(str(ROOT / "kitty/termlab.py"))
+        module = self.adapter()
         errors = []
-        boss = SimpleNamespace(window_id_map={
-            1: SimpleNamespace(user_vars={"termlab_socket": "/tmp/missing.sock"}),
-        }, show_error=lambda *args: errors.append(args))
+        boss = SimpleNamespace(window_id_map={1: SimpleNamespace(user_vars={
+            "termlab_socket": "/tmp/missing.sock", "termlab_group": "a" * 32})},
+            show_error=lambda *args: errors.append(args))
         with patch.object(module["socket"], "socket", side_effect=OSError("missing")):
             module["handle_result"](["termlab.py", "next"], None, 1, boss)
         self.assertEqual(len(errors), 1)
 
+    def test_carrier_duplicate_ack_and_busy_retry(self):
+        module = self.adapter()
+        message = module["event"]("a" * 32, "heartbeat")
+        message["seq"] = 2
+        state = dict(carrier=1, directory="/tmp/test", seq=1)
+        boss = SimpleNamespace(window_id_map={1: SimpleNamespace(id=1, user_vars={})},
+            _termlab_groups={"a" * 32: state}, show_error=lambda *args: self.fail(str(args)))
+        client = SimpleNamespace(setblocking=lambda v: None, sendto=lambda *args: None)
+        class Context:
+            def __enter__(self): return client
+            def __exit__(self, *args): pass
+        with patch.object(module["socket"], "socket", return_value=Context()):
+            args = ["termlab.py", "carrier", json.dumps(message)]
+            self.assertEqual(module["handle_result"](args, None, 1, boss), "accepted:2")
+            self.assertEqual(module["handle_result"](args, None, 1, boss), "accepted:2")
+        message["seq"] = 3
+        with patch.object(module["socket"], "socket", side_effect=BlockingIOError()):
+            self.assertEqual(module["handle_result"](["termlab.py", "carrier", json.dumps(message)], None, 1, boss), "busy")
+        self.assertEqual(state["seq"], 2)
+
+
+class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        adapter = runpy.run_path(str(ROOT / "kitty/termlab.py"))
+        message = adapter["event"]("a" * 32, "bootstrap")
+        message["seq"] = 1
+        self.command = dict(cmd="kitten", version=[0, 47, 4], no_response=False,
+            payload=dict(kitten="termlab.py", args=["carrier", json.dumps(message)]))
+        self.window = SimpleNamespace(user_vars={})
+        self.authorize = runpy.run_path(str(ROOT / "kitty/termlab_auth.py"))["is_cmd_allowed"]
+
+    def test_bootstrap_and_group_binding(self):
+        self.assertTrue(self.authorize(self.command, self.window, False, {}))
+        self.window.user_vars["termlab_group"] = "b" * 32
+        self.assertFalse(self.authorize(self.command, self.window, False, {}))
+
+    def test_denies_generic_rpc_target_overrides_and_socket_origin(self):
+        self.assertFalse(self.authorize(self.command, self.window, True, {}))
+        self.assertFalse(self.authorize(self.command, None, False, {}))
+        for key, value in [("cmd", "launch"), ("stream_id", "spoof"), ("kitty_window_id", 1), ("async_id", "spoof")]:
+            command = dict(self.command, **{key: value})
+            self.assertFalse(self.authorize(command, self.window, False, {}), key)
+        for key, value in [("match", "all"), ("all", True), ("kitten", "/tmp/evil.py"), ("args", ["_local", "{}"])]:
+            command = dict(self.command, payload=dict(self.command["payload"], **{key: value}))
+            self.assertFalse(self.authorize(command, self.window, False, {}), key)
+
+    def test_abort_cleanup_never_replies_into_the_resumed_shell(self):
+        message=json.loads(self.command["payload"]["args"][1])
+        message["kind"]="abort"
+        self.command["payload"]["args"][1]=json.dumps(message)
+        self.command["no_response"]=True
+        self.window.user_vars["termlab_group"]="a"*32
+        self.assertTrue(self.authorize(self.command,self.window,False,{}))
+        message["kind"]="bootstrap"
+        self.command["payload"]["args"][1]=json.dumps(message)
+        self.assertFalse(self.authorize(self.command,self.window,False,{}))
+
+    def test_rejects_large_envelopes_and_unknown_protocol(self):
+        for raw in ["x" * 32769, "{}", "[]", '{"v":2}']:
+            command = dict(self.command, payload=dict(kitten="termlab.py", args=["carrier", raw]))
+            self.assertFalse(self.authorize(command, self.window, False, {}))
+
 
 if __name__ == "__main__":
-    unittest.main(argv=["termlab-kitty-tests"], verbosity=2)
+    result = unittest.main(argv=["termlab-kitty-tests"], verbosity=2, exit=False).result
+    if not result.wasSuccessful():
+        raise RuntimeError("kitty integration tests failed")

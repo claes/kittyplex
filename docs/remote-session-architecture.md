@@ -1,6 +1,15 @@
 # Remote sessions with kitty-owned terminal state
 
-Status: architecture analysis and requirements reference; no architecture selected.
+Status: approach 1 selected, using the original terminal carrier. Experimental
+implementation now has real graphical SSH acceptance tests and performance
+measurements. See [the implementation reference](original-terminal-carrier.md)
+for the current contract and test status.
+
+Selected decisions: local Rust broker and Rust relays; Linux/kitty 0.47.4 baseline (also tested with 0.49.1);
+closing a view closes its remote session; controller/carrier loss closes the whole
+group. Persistence and native kitty virtual terminals remain deferred. The D-xx
+entries below preserve the original alternatives; this decision record supersedes
+them for the initial implementation.
 
 Last reviewed: 2026-10-31. Local inspection used kitty 0.49.1. Linked upstream
 source files track `master` and may differ from that installed version.
@@ -9,7 +18,10 @@ This document records the intended remote workflow, compares two implementation
 approaches, and identifies the decisions and experiments required before either
 can become an implementation specification. It supersedes the earlier suggestion
 that local kitty windows should each start an independent remote login shell.
-It does not claim that either approach is implemented or validated end to end.
+Approach 1 now has an experimental implementation validated with real kitty and
+SSH on a virtual display, including a delayed test transport. Approach 2 remains
+unimplemented. The implementation reference records current validation results;
+the capability table below preserves the original source-inspection findings.
 
 ## 1. Goal and ownership model
 
