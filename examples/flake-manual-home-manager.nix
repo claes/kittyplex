@@ -39,11 +39,12 @@
                   # map ctrl+alt+f10 kittyplex-local
                 '';
               };
-              # All five files must be in Kitty's actual configuration directory.
+              # All six files must be in Kitty's actual configuration directory.
               xdg.configFile."kitty/kittyplex.py".source = "${integration}/kittyplex.py";
               xdg.configFile."kitty/kittyplex_auth.py".source = "${integration}/kittyplex_auth.py";
               xdg.configFile."kitty/kittyplex_watcher.py".source = "${integration}/kittyplex_watcher.py";
               xdg.configFile."kitty/kittyplex_launch.py".source = "${integration}/kittyplex_launch.py";
+              xdg.configFile."kitty/kittyplex_help.py".source = "${integration}/kittyplex_help.py";
               xdg.configFile."kitty/kittyplex.conf".source = "${integration}/kittyplex.conf";
             };
           })

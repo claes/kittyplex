@@ -67,8 +67,8 @@ Every message is a JSON object with exactly these fields:
 | `seq` | Direction-wide sequence; local callback messages use zero |
 | `kind` | Operation |
 | `id` | Stable session ID; zero for group operations |
-| `data` | Base64 application bytes, a management command, or optional bootstrap display context |
-| `n` | Credit amount; bootstrap uses heartbeat timeout seconds |
+| `data` | Base64 application bytes, a management command, optional bootstrap display context, or create placement (`right`/`below`; empty for a tab) |
+| `n` | Credit amount; bootstrap uses heartbeat timeout seconds; create uses the originating session ID (zero for a tab) |
 | `rows`, `cols` | Positive terminal cell dimensions for readiness/resize |
 | `pixel_width`, `pixel_height` | Unsigned 16-bit pixel dimensions; zero means unknown |
 

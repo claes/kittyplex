@@ -27,7 +27,7 @@ let
       home.username = "alice"; home.homeDirectory = "/home/alice";
     } manualHost.home-manager.users.alice ];
   };
-  integrationFiles = [ "kittyplex.py" "kittyplex_auth.py" "kittyplex_watcher.py" "kittyplex_launch.py" "kittyplex.conf" ];
+  integrationFiles = [ "kittyplex.py" "kittyplex_auth.py" "kittyplex_watcher.py" "kittyplex_launch.py" "kittyplex_help.py" "kittyplex.conf" ];
   installManualFiles = lib.concatMapStringsSep "\n" (name: ''
     cp ${manual.config.xdg.configFile."kitty/${name}".source} "$TMPDIR/manual/${name}"
     cp ${manual.config.xdg.configFile."kitty/${name}".source} "$TMPDIR/plain/${name}"
@@ -59,6 +59,7 @@ assert !(builtins.tryEval unsafe.activationPackage.drvPath).success;
 assert !(system false).config.security.polkit.enable;
 assert (system true).config.security.polkit.enable;
 assert normal.config.xdg.configFile ? "kitty/kittyplex_launch.py";
+assert normal.config.xdg.configFile ? "kitty/kittyplex_help.py";
 assert lib.hasInfix "ctrl+alt+m" custom.config.xdg.configFile."kitty/kittyplex.conf".text;
 assert !(lib.hasInfix "ctrl+shift+m" custom.config.xdg.configFile."kitty/kittyplex.conf".text);
 pkgs.runCommand "kittyplex-module-checks" { nativeBuildInputs = [ pkgs.kitty ]; } ''

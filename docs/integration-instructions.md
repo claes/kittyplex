@@ -78,7 +78,7 @@ Polkit with normal authentication policy and asserts systemd >=258. NixOS suppli
 the systemd-run0 PAM service. The module does not grant passwordless privilege
 changes. A desktop Polkit agent or run0's terminal authentication must be available.
 
-The Home Manager module installs Kitty, four Python helpers and `kittyplex.conf`,
+The Home Manager module installs Kitty, five Python helpers and `kittyplex.conf`,
 and adds its include to Kitty's configuration. It preserves other Kitty settings.
 Its options are `programs.kittyplex.enable`, `.package`, `.kitty.enable` and
 `.kitty.prefix`. Set `.kitty.enable = false` to install only the package and manage
@@ -121,12 +121,12 @@ Kitty itself is installed for the desktop user by `programs.kitty.enable`.
 Within `home-manager.users.alice`, it sets
 `programs.kitty.settings.allow_remote_control = "password"`, adds
 `include kittyplex.conf` through `programs.kitty.extraConfig`, and declares all
-five `xdg.configFile` sources individually. The sources point into
+six `xdg.configFile` sources individually. The sources point into
 `${kittyplexPackage}/share/kittyplex/kitty`, keeping helpers and the binary from
 the same package. No shell copy/link step is needed for this path.
 
 Merge the example's `programs.kitty` settings with your existing Home Manager
-settings. Back up existing manually maintained files at the five managed paths
+settings. Back up existing manually maintained files at the six managed paths
 before activation. Keep your other Kitty settings and include the integration
 only once. Optional launch bindings are commented out in the example.
 
@@ -174,17 +174,17 @@ systemd >=258 and normal Polkit authorization.
 
 For a source build, use the [source build instructions](#building-from-source).
 Install the binary on your local PATH; SSH targets also need a compatible binary
-and `xterm-kitty` terminfo. The four Python helpers and `kittyplex.conf` are in
+and `xterm-kitty` terminfo. The five Python helpers and `kittyplex.conf` are in
 `kitty/` in a checkout, or `share/kittyplex/kitty/` in a Nix package output.
 
-### 2. Place all five files in Kitty's configuration directory
+### 2. Place all six files in Kitty's configuration directory
 
 With the NixOS package-only example, create links to the system package:
 
 ```sh
 kittyplex_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
 mkdir -p "$kittyplex_kitty_dir"
-for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex.conf; do
+for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex_help.py kittyplex.conf; do
   ln -s "/run/current-system/sw/share/kittyplex/kitty/$file" "$kittyplex_kitty_dir/$file"
 done
 ```
@@ -198,7 +198,7 @@ kittyplex_assets=kitty
 # kittyplex_assets=result/share/kittyplex/kitty
 kittyplex_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
 mkdir -p "$kittyplex_kitty_dir"
-for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex.conf; do
+for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex_help.py kittyplex.conf; do
   cp -i "$kittyplex_assets/$file" "$kittyplex_kitty_dir/$file"
 done
 ```
@@ -219,7 +219,8 @@ For the default location, the result is:
 ├── kittyplex.py
 ├── kittyplex_auth.py
 ├── kittyplex_watcher.py
-└── kittyplex_launch.py
+├── kittyplex_launch.py
+└── kittyplex_help.py
 ```
 
 ### 3. Merge the include into your existing Kitty configuration
@@ -273,7 +274,7 @@ They neither wrap nor modify Kitty's bundled `kitten ssh`. You can also bind
 `kitten kittyplex_launch.py run0 -u bob --pty` directly.
 
 For a custom management prefix, copy `kittyplex.conf` instead of symlinking it and
-change **both** occurrences of `ctrl+shift+m` (entry and literal-prefix forwarding).
+change `ctrl+shift+m` in the entry, literal-prefix forwarding and help bindings.
 With explicit Home Manager configuration, keep the edited file in your own
 configuration repository and replace only that file's source:
 
@@ -289,7 +290,7 @@ development. See [upgrading](#upgrading-an-existing-installation) when replacing
 
 ## Upgrading an existing installation
 
-End existing groups, update local and target binaries and all five integration
+End existing groups, update local and target binaries and all six integration
 files together, then start a **fresh Kitty process**. Reloading configuration can
 retain cached Python authorization code. Carrier v2 is incompatible with v1;
 see the [protocol contract](original-terminal-carrier.md#protocol-v2-kittyplex-03).

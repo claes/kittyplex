@@ -44,7 +44,11 @@ view it from the checkout with `man -l docs/kittyplex.1`.
 
 | After Ctrl-Shift-M | Action |
 | --- | --- |
-| `c` | Create and select a shell |
+| `t` / `c` | Create and select a shell in a new tab |
+| `v` | Vertical split: new session on the right |
+| `h` | Horizontal split: new session below |
+| `w` | Close this pane and its session |
+| `?` | Show help; Escape dismisses it |
 | `n` / `p` | Next / previous session |
 | `1`–`9` | Select the session at that position, if present |
 | `q` | Close the entire group |
@@ -53,7 +57,15 @@ view it from the checkout with `man -l docs/kittyplex.1`.
 
 Management mode ends after one action. Shortcuts activate only in session views.
 Ordinary Enter/Ctrl-M, typing, paste, mouse reports, and terminal replies remain
-application input. Change both `ctrl+shift+m` mappings to customize the prefix.
+application input. Change `ctrl+shift+m` in the entry, literal-prefix and help
+mappings to customize the prefix.
+
+Tabs and split panes each hold an independent session. Repeated `v` and `h`
+actions create nested splits. Splitting enables Kitty’s splits layout in that
+tab if needed, preserving its other enabled layouts. Help covers only the focused
+pane; Escape closes the overlay without reaching the application. Use Up/Down or Page Up/Page Down
+to scroll help in a small pane. Kitty’s native controls handle pane focus,
+movement and resizing.
 
 New sessions use the group's chosen interactive shell, initial directory and
 environment. Launchers choose the account's configured shell; bare `kittyplex`
@@ -62,7 +74,7 @@ synchronized, including tab clicks and native Kitty next/previous-tab navigation
 Kittyplex’s next/previous and numbered shortcuts stay within their own group and
 use session creation order; manually reordering tabs does not renumber sessions.
 Management commands identify their originating session.
-Closing a session tab closes its remote session; exiting the last shell ends
+Closing a pane closes its remote session; closing a tab closes its sessions; exiting the last shell ends
 the group. Quitting closes only kittyplex’s session views, preserving unrelated
 tabs and ordinary windows you manually added.
 A group supports up to eight simultaneous sessions.
@@ -78,7 +90,9 @@ to its applications; see the [carrier flow-control contract](original-terminal-c
 ## Command-line control
 
 From a managed shell, `kittyplex ctl status` shows the group state, and
-`kittyplex ctl new` requests another session. Use `kittyplex ctl --help` or
+`kittyplex ctl new` requests a session in a new tab.
+`kittyplex ctl split right` and `kittyplex ctl split below` split the currently
+selected session, even when the command runs in a different session. Use `kittyplex ctl --help` or
 `man kittyplex` for all control commands and explicit socket selection.
 
 ## Try the isolated demo

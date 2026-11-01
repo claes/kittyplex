@@ -24,6 +24,7 @@ def emit(window, kind):
 def on_focus_change(boss, window, data):
     if data.get("focused"):
         emit(window, "focus")
+        on_title_change(boss, window, {})
 
 
 def on_close(boss, window, data):
@@ -34,5 +35,5 @@ def on_title_change(boss, window, data):
     context = window.user_vars.get("kittyplex_context")
     if isinstance(context, bytes):
         context = context.decode("utf-8", "replace")
-    if context and (tab := window.tabref()) is not None:
+    if context and (tab := window.tabref()) is not None and tab.active_window is window:
         tab.set_title(context + " · " + window.title)

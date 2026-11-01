@@ -250,7 +250,9 @@ class CarrierTests(KittySSHCase):
             "Keep this tab open. Select a session tab to work.",
             "In a session tab, with default bindings, press Ctrl-Shift-M,",
             "release it, then press:",
-            "  c       Create and select a session",
+            "  t / c   Create and select a session tab",
+            "  v / h   Split right / below; w closes this pane",
+            "  ?       Show help (Escape dismisses it)",
             "  n / p   Next / previous session",
             "  1-9     Select an existing session by position",
             "  q       Close the group and its sessions",
@@ -262,7 +264,7 @@ class CarrierTests(KittySSHCase):
         end = text.index(instructions[-1]) + len(instructions[-1])
         lines = text[start:end].splitlines()
         self.assertEqual(lines, instructions)
-        self.assertLessEqual(len(lines), 10)
+        self.assertLessEqual(len(lines), 12)
 
         second = self.create(self.first)
         for line in instructions:
@@ -352,6 +354,90 @@ class CarrierTests(KittySSHCase):
         self.rpc("close-tab", dict(match=f'id:{last["tab_id"]}'))
         self.wait_for(lambda: not self.views())
         self.wait_for(lambda: self.text(carrier["id"]).count("remote session carrier") > prompts)
+
+    def split(self, origin, direction):
+        old = {w["id"] for w in self.views()}
+        self.manage(origin, "split", direction)
+        self.wait_for(lambda: len(self.views()) == len(old) + 1)
+        new = next(w["id"] for w in self.views() if w["id"] not in old)
+        self.wait_text(new, "remote session")
+        return new
+
+    def test_nested_splits_across_tabs_geometry_selection_and_close(self):
+        first_tab = next(w["tab_id"] for w in self.views() if w["id"] == self.first)
+        self.rpc("set-enabled-layouts", dict(match=f"id:{first_tab}", layouts=["stack"]))
+        separate = self.create(self.first)
+        right = self.split(self.first, "right")
+        first = next(w for w in self.views() if w["id"] == self.first)
+        r = next(w for w in self.views() if w["id"] == right)
+        self.assertEqual(first["tab_id"], r["tab_id"])
+        self.assertEqual(first["lines"], r["lines"])
+        self.assertNotEqual(first["tab_id"], next(w for w in self.views() if w["id"] == separate)["tab_id"])
+        below = self.split(self.first, "below")
+        first = next(w for w in self.views() if w["id"] == self.first)
+        b = next(w for w in self.views() if w["id"] == below)
+        self.assertEqual(first["tab_id"], b["tab_id"])
+        self.assertEqual(first["columns"], b["columns"])
+        self.assertLess(first["lines"], r["lines"])
+        for view in self.views():
+            self.send(view["id"], "printf 'SPLIT_SIZE_%s ' NOW; stty size\n")
+            self.wait_text(view["id"], f"SPLIT_SIZE_NOW {view['lines']} {view['columns']}")
+        self.manage(below, "select", "2")
+        self.wait_for(lambda: self.active_window_id() == separate)
+        self.manage(separate, "next")
+        self.wait_for(lambda: self.active_window_id() == right)
+        self.manage(right, "previous")
+        self.wait_for(lambda: self.active_window_id() == separate)
+        self.rpc("action", dict(action="close_window", match=f"id:{below}"))
+        self.wait_for(lambda: len(self.views()) == 3)
+        self.assertEqual({w["id"] for w in self.views()}, {self.first, separate, right})
+        self.manage(right, "quit")
+        self.wait_for(lambda: not self.views())
+
+    def test_help_overlay_escape_background_output_and_origin_close(self):
+        other = self.split(self.first, "right")
+        before = next(w for w in self.views() if w["id"] == self.first)
+        self.rpc("action", dict(action="kitten kittyplex.py help ctrl+shift+m", match=f"id:{self.first}"))
+        def help_window():
+            return next((w for w in self.windows() if w["id"] not in {self.first, other}
+                         and "kittyplex_group" not in w.get("user_vars", {})
+                         and "Kittyplex shortcuts" in self.text(w["id"])), None)
+        overlay = self.wait_for(help_window)
+        self.assertEqual(len(self.views()), 2)
+        after = next(w for w in self.views() if w["id"] == self.first)
+        self.assertEqual((before["lines"], before["columns"]), (after["lines"], after["columns"]))
+        self.assertFalse(overlay.get("user_vars", {}).get("kittyplex_session"))
+        self.send(self.first, "printf 'HELP_BACKGROUND_%s\\n' OK\n")
+        self.wait_text(self.first, "HELP_BACKGROUND_OK")
+        self.rpc("send-key", dict(match=f"id:{overlay['id']}", keys=["escape"]))
+        self.wait_for(lambda: overlay["id"] not in {w["id"] for w in self.windows()})
+        self.wait_for(lambda: self.active_window_id() == self.first)
+        self.assertIn("HELP_BACKGROUND_OK", self.text(self.first))
+        self.rpc("action", dict(action="kitten kittyplex.py help ctrl+shift+m", match=f"id:{self.first}"))
+        overlay = self.wait_for(help_window)
+        self.rpc("close-window", dict(match=f"id:{self.first}"))
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.wait_for(lambda: overlay["id"] not in {w["id"] for w in self.windows()})
+        self.assertEqual(self.views()[0]["id"], other)
+
+    def test_rapid_splits_and_session_limit(self):
+        for direction in ("right", "below", "right"):
+            self.manage(self.first, "split", direction)
+        self.wait_for(lambda: len(self.views()) == 4)
+        for _ in range(4):
+            self.manage(self.first, "split", "right")
+        self.wait_for(lambda: len(self.views()) == 8)
+        self.rpc("action", dict(action="goto_layout grid", match=f"id:{self.first}"))
+        for view in self.views():
+            self.wait_text(view["id"], "remote session")
+        self.manage(self.first, "split", "below")
+        # A round trip to a live shell establishes that the controller remains responsive.
+        status_path = self.fixture.directory / "split-limit-status"
+        self.send(self.first, "kittyplex ctl status >" + shlex.quote(str(status_path)) + "; printf 'LIMIT_%s\\n' OK\n")
+        self.wait_text(self.first, "LIMIT_OK")
+        status = dict(item.split("=", 1) for item in status_path.read_text().split())
+        self.assertEqual(status["ids"], "1,2,3,4,5,6,7,8")
+        self.assertEqual(len(self.views()), 8)
 
     def test_independent_screens_hidden_output_and_native_focus(self):
         self.send(self.first, "printf 'FIRST_%s\\n' SCREEN\n")

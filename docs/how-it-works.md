@@ -27,8 +27,11 @@ Your Kitty window
 
 The original SSH tab stays open as the **carrier**: the terminal through which
 all sessions communicate with the server. Each additional session gets a native
-Kitty tab containing a small local relay connected to a remote application
-session. A tab is a user-interface object inside Kitty, not another Kitty process.
+Kitty pane containing a small local relay connected to a remote application
+session. It can occupy a new tab or split an existing session pane. A tab groups
+panes inside Kitty; it is not another Kitty process. The carrier stays separate.
+The `?` management action shows local help over the focused pane; Escape closes
+help while the underlying session continues receiving output.
 
 Vim stores your document and editing state on the server. Kitty stores how Vim's
 terminal screen currently looks on your computer. These are different kinds of

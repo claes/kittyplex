@@ -11,6 +11,8 @@ use crate::{CONTROL_TIMEOUT, invalid};
 #[derive(Debug, PartialEq)]
 pub enum Action {
     New,
+    SplitRight,
+    SplitBelow,
     Next,
     Previous,
     Select(usize),
@@ -23,6 +25,8 @@ impl Action {
         let parts: Vec<_> = request.split_whitespace().collect();
         match parts.as_slice() {
             ["new"] => Ok(Self::New),
+            ["split", "right"] => Ok(Self::SplitRight),
+            ["split", "below"] => Ok(Self::SplitBelow),
             ["next"] => Ok(Self::Next),
             ["previous"] => Ok(Self::Previous),
             ["status"] => Ok(Self::Status),
@@ -34,7 +38,7 @@ impl Action {
                 .map(Self::Select)
                 .ok_or_else(|| invalid("select requires a positive session position")),
             _ => Err(invalid(
-                "expected new, next, previous, select N, status, or quit",
+                "expected new, split right, split below, next, previous, select N, status, or quit",
             )),
         }
     }
@@ -220,11 +224,16 @@ mod tests {
             "select -1",
             "select 1 extra",
             "new extra",
+            "split",
+            "split left",
+            "split right extra",
             "next\nquit",
         ] {
             assert!(Action::parse(request).is_err(), "{request:?}");
         }
         assert_eq!(Action::parse("select 9").unwrap(), Action::Select(9));
         assert_eq!(Action::parse("next").unwrap(), Action::Next);
+        assert_eq!(Action::parse("split right").unwrap(), Action::SplitRight);
+        assert_eq!(Action::parse("split below").unwrap(), Action::SplitBelow);
     }
 }

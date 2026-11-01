@@ -17,7 +17,8 @@ Options:
 
 With no subcommand, start the controller here, including after an SSH login.
 Install the Kitty integration locally and kittyplex on each target first.
-Ctrl-Shift-M, then c/n/p/1-9/q manages sessions; repeat the prefix to send it.
+Ctrl-Shift-M, then ? shows shortcuts; t/c opens a tab, v/h splits, w closes.
+Use n/p/1-9 to select, q to quit; repeat the prefix to send it.
 Connection loss closes the group. Detach/reattach is not supported.
 
 Run 'kittyplex COMMAND --help' for command help, or 'man kittyplex' for details.
@@ -90,7 +91,9 @@ const CTL: &str = "Manage an existing group on the same host and account.
 Usage: kittyplex ctl [--socket PATH] COMMAND
 
 Commands:
-  new          Create and select a shell (creation is asynchronous)
+  new          Create and select a shell in a new tab (asynchronous)
+  split right  Create a session to the right of the selected session
+  split below  Create a session below the selected session
   next         Select the next session
   previous     Select the previous session
   select N     Select a session by its current 1-based position

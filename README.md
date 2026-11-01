@@ -6,8 +6,8 @@
 ## Introduction
 
 Kittyplex lets you create several terminal sessions in a remote account, or as
-another user on your own computer, and switch between them using Kitty's native
-tabs. You might keep an editor, a build and a log viewer open together without
+another user on your own computer, using Kitty's native tabs and split panes.
+You might keep an editor, a build and a log viewer open together without
 starting a separate SSH login or user-switching command for each session.
 
 The experiment is to separate **running programs** from **displaying their
@@ -78,7 +78,8 @@ kittyplex ssh bob@server
 ```
 
 Create separate sessions for an editor, a build and a log viewer. Their programs
-run on the server as bob; each display has its own local Kitty tab. Additional
+run on the server as bob; each display has its own local Kitty pane, initially
+in a separate tab. Additional
 sessions share the original SSH connection instead of starting another login.
 Keep the original connection's carrier tab open while working.
 
@@ -119,7 +120,11 @@ Press **Ctrl-Shift-M**, release it, then press the action key:
 
 | Key | Action |
 | --- | --- |
-| `c` | Create and select a session |
+| `t` / `c` | Create and select a session in a new tab |
+| `v` | Vertical split: new session on the right |
+| `h` | Horizontal split: new session below |
+| `w` | Close this pane and its session |
+| `?` | Show help; Escape dismisses it |
 | `n` / `p` | Next / previous session |
 | `1`–`9` | Select an existing session by its current position in the group |
 | `q` | Close the entire group and its sessions |
@@ -129,6 +134,9 @@ Ctrl-Shift-M to the application. Shortcuts apply only inside managed views;
 ordinary Enter/Ctrl-M remains application input. Kitty's native tab selection
 also works. Numbered shortcuts follow session creation order; reordering Kitty
 tabs does not change their numbering.
+
+Help opens a local overlay over the focused pane; the session keeps running
+underneath. Use Kitty’s own controls to resize and rearrange split panes.
 
 See the [usage guide](docs/usage.md#controls-and-lifecycle) for complete behavior
 and prefix customization.

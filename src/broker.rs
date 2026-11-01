@@ -92,6 +92,9 @@ impl Broker {
     }
     fn local(&mut self, kind: &str, id: u64) -> io::Result<()> {
         let m = Message::new(&self.group, kind, id);
+        self.local_message(&m)
+    }
+    fn local_message(&mut self, m: &Message) -> io::Result<()> {
         self.wire.extend(p::remote_command("kitten",serde_json::json!({"kitten":self.helper,"match":format!("id:{}",self.carrier),"args":["_local",String::from_utf8(m.bytes()?).unwrap()]}),false)?);
         Ok(())
     }
@@ -296,7 +299,7 @@ impl Broker {
                 self.finishing = true;
                 self.closing = Some(Instant::now());
             }
-            "create" => self.local("create", m.id)?,
+            "create" => self.local_message(&m)?,
             "select" => self.local("select", m.id)?,
             "output" | "input_credit" => {
                 if let Some(v) = self.views.get_mut(&m.id) {

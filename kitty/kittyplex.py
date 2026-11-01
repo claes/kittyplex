@@ -149,15 +149,30 @@ def local(boss, m):
         if len(state["views"]) >= 8:
             raise ValueError("maximum eight live views per group")
         endpoint = os.path.join(state["directory"], "events.sock")
-        opts, cmd = parse_launch_args([
-            "--type=tab", "--location=last",
+        placement = m.get("data", "")
+        target = carrier
+        location = ["--type=tab", "--location=last"]
+        if placement:
+            if placement not in {"right", "below"}:
+                raise ValueError("invalid split placement")
+            target = boss.window_id_map.get(state["views"].get(m["n"]))
+            if target is None or target.tabref() is None:
+                emit(endpoint, event(m["g"], "close", m["id"]))
+                return
+            tab = target.tabref()
+            if not any(layout.partition(":")[0] == "splits" for layout in tab.enabled_layouts):
+                tab.set_enabled_layouts([*tab.enabled_layouts, "splits"])
+            tab.goto_layout("splits", raise_exception=True)
+            location = ["--type=window", "--location=" + ("vsplit" if placement == "right" else "hsplit"),
+                        "--next-to=id:" + str(target.id)]
+        opts, cmd = parse_launch_args(location + [
             "--watcher=" + os.path.join(DIRECTORY, "kittyplex_watcher.py"),
             "--var=kittyplex_socket=" + endpoint,
             "--var=kittyplex_group=" + m["g"],
             "--var=kittyplex_session=" + str(m["id"]),
             "--var=kittyplex_context=" + state["context"],
             state["binary"], "__view", state["directory"], m["g"], str(m["id"])])
-        view = launch(boss, opts, cmd, target_tab=carrier.tabref(), rc_from_window=carrier)
+        view = launch(boss, opts, cmd, target_tab=target.tabref(), rc_from_window=target)
         if view is None:
             raise ValueError("kitty did not create a session view")
         # Set an initial child title without pinning an override that blocks OSC 2.
@@ -167,6 +182,24 @@ def local(boss, m):
         window = boss.window_id_map.get(state["views"].get(m["id"]))
         if window:
             boss.set_active_window(window)
+
+
+def show_help(boss, window, prefix):
+    overlay = boss.run_kitten_with_metadata(os.path.join(DIRECTORY, "kittyplex_help.py"),
+                                          args=[prefix], window=window)
+    if overlay is None:
+        return
+
+    def close_help(closed):
+        if overlay.id in boss.window_id_map:
+            boss.close_windows_no_confirm([overlay])
+
+    def forget_help(closed):
+        if close_help in window.actions_on_close:
+            window.actions_on_close.remove(close_help)
+
+    window.actions_on_close.append(close_help)
+    overlay.actions_on_removal.append(forget_help)
 
 
 def main(args):
@@ -215,8 +248,12 @@ def handle_result(args, answer, target_window_id, boss):
                     return "busy"
             state["seq"] = m["seq"]
             return f'accepted:{m["seq"]}'
+        if len(args) == 3 and args[1] == "help":
+            if window.user_vars.get("kittyplex_socket"):
+                show_help(boss, window, args[2])
+            return
         command = " ".join(args[1:])
-        if command not in {"new", "next", "previous", "quit"} and command not in {
+        if command not in {"new", "split right", "split below", "next", "previous", "quit"} and command not in {
             f"select {n}" for n in range(1, 10)
         }:
             raise ValueError("unknown management command")

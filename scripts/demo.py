@@ -106,7 +106,7 @@ LogLevel VERBOSE
         self.run(self.ssh + ["true"])
         conf = root / "kitty"
         conf.mkdir(mode=0o700)
-        for name in ("kittyplex.py", "kittyplex_auth.py", "kittyplex_watcher.py", "kittyplex_launch.py", "kittyplex.conf"):
+        for name in ("kittyplex.py", "kittyplex_auth.py", "kittyplex_watcher.py", "kittyplex_launch.py", "kittyplex_help.py", "kittyplex.conf"):
             shutil.copy(self.integration / name, conf / name)
         (conf / "kitty.conf").write_text("include kittyplex.conf\nconfirm_os_window_close 0\nshell_integration disabled\n")
         # Clean Bash startup files, but retain the real user's home and identity.

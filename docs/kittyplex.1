@@ -134,8 +134,12 @@ Controller socket; defaults to KITTYPLEX_SOCKET in managed shells.
 This is the target controller's socket, not the local display broker's socket.
 .TP
 .B new
-Create and select a shell.
+Create and select a shell in a new tab.
 Acknowledgement is asynchronous: the new session may not yet appear in status.
+.TP
+.BI split " right|below"
+Create a session to the right of or below the currently selected session.
+Creation is asynchronous and uses the same account and transport.
 .TP
 .BR next , " previous"
 Select the next or previous session in creation order, wrapping around.
@@ -166,8 +170,22 @@ The top-level \-V and \-\-version options print the program version.
 .SH KEYBOARD CONTROLS
 Press Ctrl-Shift-M, release it, then press an action key:
 .TP
-.B c
-Create and select a shell.
+.BR t , " c"
+Create and select a shell in a new tab.
+.TP
+.B v
+Vertical split: create a session on the right.
+.TP
+.B h
+Horizontal split: create a session below.
+.TP
+.B w
+Close the focused pane and its session.
+.TP
+.B ?
+Show local help over the focused pane.
+Escape dismisses help without reaching the application; Up/Down and
+Page Up/Page Down scroll it.
 .TP
 .BR n , " p"
 Select the next or previous session.
@@ -186,7 +204,10 @@ Send one literal prefix chord to the application.
 .PP
 Management shortcuts apply only in managed views and end after one action.
 Ordinary Enter/Ctrl-M remains application input.
-Kitty's native tab selection and closure also work.
+Kitty's native pane/tab selection, resizing, movement and closure also work.
+Closing a tab closes all of its sessions.
+Repeated splits can create nested arrangements.
+Help does not create a session or pause application output.
 .SH KITTY ACTIONS
 The supplied configuration defines kittyplex-local, kittyplex-run0 and
 kittyplex-ssh
@@ -231,8 +252,8 @@ otherwise /tmp is used.
 .SH FILES
 In Kitty's configuration directory (normally ~/.config/kitty), install
 kittyplex.py,
-kittyplex_auth.py, kittyplex_watcher.py, kittyplex_launch.py and
-kittyplex.conf.
+kittyplex_auth.py, kittyplex_watcher.py, kittyplex_launch.py,
+kittyplex_help.py and kittyplex.conf.
 Add include kittyplex.conf to the existing kitty.conf.
 The configuration enables password-mode remote control with a scoped callback.
 Use Kitty's actual configuration directory when it has been customized.

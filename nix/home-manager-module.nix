@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.programs.kittyplex;
-  helpers = [ "kittyplex.py" "kittyplex_auth.py" "kittyplex_watcher.py" "kittyplex_launch.py" ];
+  helpers = [ "kittyplex.py" "kittyplex_auth.py" "kittyplex_watcher.py" "kittyplex_launch.py" "kittyplex_help.py" ];
   integration = lib.replaceStrings [ "ctrl+shift+m" ] [ cfg.kitty.prefix ] (builtins.readFile ../kitty/kittyplex.conf);
 in {
   options.programs.kittyplex = {

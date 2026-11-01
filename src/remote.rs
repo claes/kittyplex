@@ -14,7 +14,9 @@ const STARTUP_INSTRUCTIONS: &str = concat!(
     "Keep this tab open. Select a session tab to work.\r\n",
     "In a session tab, with default bindings, press Ctrl-Shift-M,\r\n",
     "release it, then press:\r\n",
-    "  c       Create and select a session\r\n",
+    "  t / c   Create and select a session tab\r\n",
+    "  v / h   Split right / below; w closes this pane\r\n",
+    "  ?       Show help (Escape dismisses it)\r\n",
     "  n / p   Next / previous session\r\n",
     "  1-9     Select an existing session by position\r\n",
     "  q       Close the group and its sessions\r\n",
@@ -34,7 +36,7 @@ struct Remote {
     next: u64,
     active: u64,
     shell: PathBuf,
-    pending: HashMap<u64, Instant>,
+    pending: HashMap<u64, (Instant, u64)>,
     messages: VecDeque<Message>,
     wire: VecDeque<u8>,
     outstanding: VecDeque<Message>,
@@ -160,7 +162,11 @@ impl Remote {
                 self.enqueue("heartbeat", 0);
                 self.heartbeat = Instant::now();
             }
-            if self.pending.values().any(|t| t.elapsed() > self.timeout) {
+            if self
+                .pending
+                .values()
+                .any(|(t, _)| t.elapsed() > self.timeout)
+            {
                 return Err(io::Error::other("kitty view failed to become ready"));
             }
             if self.background_refill.elapsed() >= Duration::from_millis(100) {
@@ -370,7 +376,13 @@ impl Remote {
                 }
             }
             "view_ready" => {
-                if self.pending.remove(&m.id).is_some() && !self.closing {
+                if let Some((_, origin)) = self.pending.remove(&m.id) {
+                    if self.closing
+                        || (origin != 0 && !self.sessions.iter().any(|s| s.session.id == origin))
+                    {
+                        self.enqueue("drop", m.id);
+                        return Ok(());
+                    }
                     let s = Session::spawn(
                         m.id,
                         &self.shell,
@@ -382,6 +394,8 @@ impl Remote {
                         session: s,
                         credit: p::OUTPUT,
                     });
+                    // Relay startup can complete out of order; numbering follows allocation.
+                    self.sessions.sort_by_key(|s| s.session.id);
                     self.active = m.id;
                 }
             }
@@ -417,11 +431,17 @@ impl Remote {
                 self.remove(m.id);
             }
             "command" => {
+                let action = Action::parse(&m.data)?;
+                if matches!(action, Action::SplitRight | Action::SplitBelow)
+                    && !self.sessions.iter().any(|s| s.session.id == m.id)
+                {
+                    return Ok(());
+                }
                 if self.sessions.iter().any(|s| s.session.id == m.id) {
                     self.active = m.id;
                 }
                 // Out-of-range numbered selection is a harmless user error.
-                let _ = self.action(Action::parse(&m.data)?);
+                let _ = self.action(action);
             }
             "heartbeat" => {}
             "closed" => self.closed = true,
@@ -431,6 +451,9 @@ impl Remote {
         Ok(())
     }
     fn create(&mut self) -> io::Result<()> {
+        self.create_at(0, "")
+    }
+    fn create_at(&mut self, origin: u64, placement: &str) -> io::Result<()> {
         if self.closing {
             return Err(crate::invalid("group is closing"));
         }
@@ -439,8 +462,17 @@ impl Remote {
         }
         let id = self.next;
         self.next += 1;
-        self.pending.insert(id, Instant::now());
-        self.enqueue("create", id);
+        self.pending.insert(id, (Instant::now(), origin));
+        let mut message = Message::new(&self.group, "create", id);
+        message.n = origin as usize;
+        message.data = placement.into();
+        // Keep creation ahead of bulk output without reversing rapid requests.
+        let position = self
+            .messages
+            .iter()
+            .position(|m| m.kind == "output")
+            .unwrap_or(self.messages.len());
+        self.messages.insert(position, message);
         Ok(())
     }
     fn remove(&mut self, id: u64) {
@@ -468,6 +500,17 @@ impl Remote {
     fn action(&mut self, a: Action) -> io::Result<String> {
         match a {
             Action::New => self.create()?,
+            Action::SplitRight | Action::SplitBelow => {
+                if !self.sessions.iter().any(|s| s.session.id == self.active) {
+                    return Err(crate::invalid("no ready session to split"));
+                }
+                let placement = if a == Action::SplitRight {
+                    "right"
+                } else {
+                    "below"
+                };
+                self.create_at(self.active, placement)?;
+            }
             Action::Quit => self.shutdown(),
             Action::Status => {}
             Action::Next | Action::Previous | Action::Select(_) => {

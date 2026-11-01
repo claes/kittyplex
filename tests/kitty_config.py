@@ -59,7 +59,8 @@ class MappingHarness(Mappings):
 
 class MappingTests(unittest.TestCase):
     def test_all_management_actions_exit_mode(self):
-        expected = {"c": "new", "n": "next", "p": "previous", "q": "quit"}
+        expected = {"c": "new", "t": "new", "v": "split right", "h": "split below",
+                    "n": "next", "p": "previous", "q": "quit"}
         expected.update({str(i): f"select {i}" for i in range(1, 10)})
         for key, command in expected.items():
             with self.subTest(key=key):
@@ -69,6 +70,20 @@ class MappingTests(unittest.TestCase):
                 self.assertTrue(mappings.press(key))
                 self.assertEqual(mappings.current_keyboard_mode_name, "")
                 self.assertEqual(mappings.actions, [f"kitten kittyplex.py {command}"])
+
+    def test_close_and_help_are_local_and_exit_mode(self):
+        for key, action in {"w": "close_window", "?": "kitten kittyplex.py help ctrl+shift+m"}.items():
+            mappings = MappingHarness()
+            mappings.press("ctrl+shift+m")
+            self.assertTrue(mappings.press(key))
+            self.assertEqual(mappings.current_keyboard_mode_name, "")
+            self.assertEqual(mappings.actions, [action])
+
+    def test_help_matches_shifted_question_mark(self):
+        mappings = MappingHarness()
+        mappings.press("ctrl+shift+m")
+        self.assertTrue(mappings.dispatch_possible_special_key(KeyEvent(key=47, mods=1, shifted_key=63)))
+        self.assertEqual(mappings.actions, ["kitten kittyplex.py help ctrl+shift+m"])
 
     def test_prefix_passes_through_outside_kittyplex(self):
         mappings = MappingHarness(registered=False)
@@ -158,6 +173,53 @@ class HelperTests(unittest.TestCase):
         self.assertEqual((message["kind"], message["id"], message["data"]), ("command", 2, "new"))
         self.assertFalse(errors)
 
+    def test_split_placement_is_bound_to_origin_not_active_view(self):
+        module = self.adapter()
+        calls = []
+        tab = SimpleNamespace(enabled_layouts=["stack"], goto_layout=lambda *a, **kw: calls.append((a, kw)))
+        tab.set_enabled_layouts = lambda layouts: setattr(tab, "enabled_layouts", layouts)
+        origin = SimpleNamespace(id=22, tabref=lambda: tab)
+        carrier = SimpleNamespace(id=1, tabref=lambda: None)
+        state = dict(carrier=1, directory="/tmp/test", views={2: 22}, binary="/bin/kittyplex", context="")
+        boss = SimpleNamespace(window_id_map={1: carrier, 22: origin}, _kittyplex_groups={"a" * 32: state})
+        view = SimpleNamespace(id=33, title_changed=lambda value: None)
+        message = module["event"]("a" * 32, "create", 3, "below")
+        message["n"] = 2
+        with patch("kitty.launch.launch", return_value=view) as launch:
+            module["local"](boss, message)
+        self.assertEqual(calls, [(("splits",), {"raise_exception": True})])
+        self.assertEqual(tab.enabled_layouts, ["stack", "splits"])
+        self.assertIs(launch.call_args.kwargs["target_tab"], tab)
+        self.assertIs(launch.call_args.kwargs["rc_from_window"], origin)
+        opts = launch.call_args.args[1]
+        self.assertEqual((opts.type, opts.location, opts.next_to), ("window", "hsplit", "id:22"))
+        self.assertEqual(state["views"][3], 33)
+
+    def test_missing_split_origin_cancels_creation(self):
+        module = self.adapter()
+        state = dict(carrier=1, directory="/tmp/test", views={}, binary="/bin/kittyplex", context="")
+        boss = SimpleNamespace(window_id_map={1: SimpleNamespace(id=1)}, _kittyplex_groups={"a" * 32: state})
+        message = module["event"]("a" * 32, "create", 3, "right")
+        message["n"] = 2
+        with patch("kitty.launch.launch") as launch, patch.dict(module["local"].__globals__, emit=lambda ep, m: state.update(cancel=m)):
+            module["local"](boss, message)
+        launch.assert_not_called()
+        self.assertEqual((state["cancel"]["kind"], state["cancel"]["id"]), ("close", 3))
+
+    def test_help_closes_with_parent_and_removes_temporary_callback(self):
+        module = self.adapter()
+        parent = SimpleNamespace(id=1, actions_on_close=[])
+        overlay = SimpleNamespace(id=2, actions_on_removal=[])
+        closed = []
+        boss = SimpleNamespace(window_id_map={1: parent, 2: overlay},
+            run_kitten_with_metadata=lambda *a, **kw: overlay,
+            close_windows_no_confirm=closed.extend)
+        module["show_help"](boss, parent, "ctrl+alt+m")
+        parent.actions_on_close[0](parent)
+        self.assertEqual(closed, [overlay])
+        overlay.actions_on_removal[0](overlay)
+        self.assertEqual(parent.actions_on_close, [])
+
     def test_v2_geometry_fields_and_legacy_rejection(self):
         module=self.adapter()
         message=module["event"]("a"*32,"heartbeat")
@@ -199,6 +261,36 @@ class HelperTests(unittest.TestCase):
         with patch.object(module["socket"], "socket", side_effect=BlockingIOError()):
             self.assertEqual(module["handle_result"](["kittyplex.py", "carrier", json.dumps(message)], None, 1, boss), "busy")
         self.assertEqual(state["seq"], 2)
+
+
+class HelpTests(unittest.TestCase):
+    def test_small_pane_scroll_resize_and_escape(self):
+        Help = runpy.run_path(str(ROOT / "kitty/kittyplex_help.py"))["Help"]
+        help = Help("ctrl+alt+m")
+        writes, exits = [], []
+        help._schedule_write = writes.append
+        help._tui_loop = SimpleNamespace(quit=exits.append)
+        help.screen_size = SimpleNamespace(rows=6, cols=24)
+        help.initialize()
+        self.assertIn(b"Escape to close", b"".join(writes))
+        help.on_key(SimpleNamespace(matches=lambda key: key == "page_down"))
+        self.assertGreater(help.offset, 0)
+        help.on_resize(SimpleNamespace(rows=40, cols=100))
+        self.assertEqual(help.offset, 0)
+        self.assertIn("ctrl+alt+m", "\n".join(help.lines()))
+        help.on_key(SimpleNamespace(matches=lambda key: key == "escape"))
+        self.assertEqual(exits, [0])
+
+    def test_background_title_does_not_replace_focused_pane_title(self):
+        watcher = runpy.run_path(str(ROOT / "kitty/kittyplex_watcher.py"))
+        titles = []
+        tab = SimpleNamespace(active_window=None, set_title=titles.append)
+        foreground = SimpleNamespace(user_vars={"kittyplex_context": "host"}, title="editor", tabref=lambda: tab)
+        background = SimpleNamespace(user_vars={"kittyplex_context": "host"}, title="build", tabref=lambda: tab)
+        tab.active_window = foreground
+        watcher["on_title_change"](None, background, {})
+        watcher["on_title_change"](None, foreground, {})
+        self.assertEqual(titles, ["host · editor"])
 
 
 class AuthorizationTests(unittest.TestCase):
