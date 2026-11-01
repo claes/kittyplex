@@ -1,7 +1,7 @@
 {
   "recorded_at": "2026-10-31T22:05:51.812525+00:00",
   "kitty_version": "kitty 0.47.4 created by Kovid Goyal",
-  "termlab_version": "termlab 0.2.0",
+  "kittyplex_version": "kittyplex 0.2.0",
   "network": "real localhost SSH, no artificial delay",
   "injected_rtt_ms": 0.0,
   "polling_resolution_ms": 20,

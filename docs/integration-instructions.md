@@ -10,35 +10,6 @@ This document owns installation and launch configuration. The
 [compatibility](kitty-compatibility.md) covers terminal features and their limits.
 Detach and reattach remain unimplemented; see [detach analysis](detach-analysis.md).
 
-## Migrating from termlab
-
-Kittyplex is the new project name. This is a clean rename, without compatibility
-aliases. Version remains 0.4.0 and the carrier envelope remains v2, but its marker
-is now `@kittyplex:`. Old and renamed components cannot be mixed.
-
-1. Quit existing groups before upgrading; sessions cannot be migrated live.
-2. Install `kittyplex` locally and on SSH targets. Replace `termlab` commands,
-   `termlab-demo` and `termlab-features` with their `kittyplex` equivalents.
-3. Change Nix flake input references and `programs.termlab` options to
-   `kittyplex` and `programs.kittyplex`; installed resources move from
-   `share/termlab` to `share/kittyplex`.
-4. Replace `TERMLAB_` environment variables with `KITTYPLEX_`, including binary
-   overrides and test settings. Old variables are no longer recognized.
-5. Replace `include termlab.conf`, old helper/action references and custom
-   bindings with the renamed configuration below. Remove the obsolete files
-   `termlab.conf`, `termlab.py`, `termlab_auth.py`, `termlab_watcher.py` and
-   `termlab_launch.py` from your Kitty config directory after installing the new
-   files. Home Manager users must remove old manually installed files themselves.
-6. Start a fresh Kitty process, run `kittyplex doctor`, and test a new group.
-   Ctrl-Shift-M retains its existing behavior.
-
-Repository examples now use `github:claes/kittyplex`. The GitHub repository rename
-must be performed separately before those URLs can fetch this version; until
-then use `path:/absolute/path/to/checkout`. The rename does not move your local
-checkout or change its Git remote. Existing benchmark JSON remains unchanged as
-historical evidence, including its `termlab_version` fields; newly generated
-results use `kittyplex_version`.
-
 ## Install with NixOS and Home Manager
 
 Use [examples/flake-with-modules.nix](../examples/flake-with-modules.nix) as a

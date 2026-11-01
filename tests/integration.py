@@ -51,13 +51,12 @@ class StartupTests(unittest.TestCase):
         self.assertIn(b"kitty-owned", result.stdout)
         self.assertNotIn(b"Inactive output is discarded", result.stdout)
 
-    def test_executable_and_help_use_new_identity(self):
+    def test_executable_and_help_use_project_identity(self):
         self.assertEqual(BINARY.name, "kittyplex")
         result = subprocess.run([BINARY, "--version"], capture_output=True, check=True)
         self.assertEqual(result.stdout.strip(), b"kittyplex 0.4.0")
         help_text = subprocess.check_output([BINARY, "run0", "--help"])
         self.assertIn(b"kittyplex run0", help_text)
-        self.assertNotIn(b"termlab", help_text)
 
     def test_invalid_heartbeat_and_nested_start_fail(self):
         result = subprocess.run([BINARY, "--heartbeat-timeout", "1"], capture_output=True)

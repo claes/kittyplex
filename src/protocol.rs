@@ -236,17 +236,17 @@ mod tests {
         }
     }
     #[test]
-    fn renamed_carrier_namespace_rejects_legacy_frames() {
+    fn carrier_namespace_rejects_unknown_frames() {
         let message = Message::new(G, "heartbeat", 0);
         let frame = carrier(&message).unwrap();
         assert!(frame.starts_with(b"\x1bP@kittyplex:"));
-        let legacy = [
-            b"\x1bP@termlab:".as_slice(),
+        let unknown = [
+            b"\x1bP@unknown:".as_slice(),
             &message.bytes().unwrap(),
             b"\x1b\\",
         ]
         .concat();
-        assert!(Decoder::default().push(&legacy).is_err());
+        assert!(Decoder::default().push(&unknown).is_err());
         assert_eq!(Decoder::default().push(&frame).unwrap().len(), 1);
     }
 

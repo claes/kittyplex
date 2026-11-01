@@ -223,8 +223,8 @@ class AuthorizationTests(unittest.TestCase):
         launch = dict(self.command, payload=dict(kitten="kittyplex_launch.py", args=["run0", "-uroot"]))
         self.assertFalse(self.authorize(launch, self.window, False, {}))
 
-    def test_rejects_legacy_helper_names(self):
-        for helper in ["termlab.py", "termlab_launch.py", "termlab_auth.py"]:
+    def test_rejects_unknown_helper_names(self):
+        for helper in ["unknown.py", "unknown_launch.py", "unknown_auth.py"]:
             command = dict(self.command, payload=dict(self.command["payload"], kitten=helper))
             self.assertFalse(self.authorize(command, self.window, False, {}), helper)
         self.assertTrue(self.authorize(self.command, self.window, False, {}))
