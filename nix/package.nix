@@ -12,6 +12,8 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     mkdir -p $out/share/kittyplex
     cp -r kitty scripts $out/share/kittyplex/
+    mkdir -p $out/share/man/man1
+    cp docs/kittyplex.1 $out/share/man/man1/
     substituteInPlace $out/share/kittyplex/kitty/kittyplex.py \
       --replace-fail 'PACKAGED_BINARY = None' "PACKAGED_BINARY = '$out/bin/kittyplex'"
   '';

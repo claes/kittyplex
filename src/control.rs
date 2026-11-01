@@ -169,6 +169,10 @@ impl Drop for Control {
 }
 
 pub fn client(args: &[String]) -> io::Result<()> {
+    if crate::help::requested("ctl", args) {
+        print!("{}", crate::help::command("ctl").unwrap());
+        return Ok(());
+    }
     let (socket, command) = if args.first().map(String::as_str) == Some("--socket") {
         let path = args
             .get(1)

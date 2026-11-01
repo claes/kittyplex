@@ -1,0 +1,291 @@
+.TH KITTYPLEX 1 "2026-11-01" "kittyplex 0.4.0" "User Commands"
+.SH NAME
+kittyplex \- terminal multiplexing with Kitty\-owned screens
+.SH SYNOPSIS
+.B kittyplex
+.RB [ \-\-heartbeat\-timeout " SECONDS"]
+.br
+.B kittyplex start
+.RB [ \-\-login ]
+.RB [ \-\-cwd " DIRECTORY"]
+.br
+.B kittyplex run0
+.RI [ OPTIONS ]
+.br
+.B kittyplex ssh
+.RB [ \-\-remote\-binary " PATH"]
+.RB [ \-\-cwd " DIRECTORY"]
+.I DESTINATION
+.RB [ \-\- " SSH_OPTIONS..."]
+.br
+.B kittyplex ctl
+.RB [ \-\-socket " PATH"]
+.I COMMAND
+.br
+.B kittyplex doctor
+.br
+.B kittyplex
+.BR \-h | \-\-help | \-V | \-\-version
+.SH DESCRIPTION
+Kittyplex manages application processes and pseudoterminals while Kitty
+retains
+an independent screen, scrollback and terminal parser for each session.
+It transports application bytes without emulating a terminal.
+A group contains up to eight sessions, each displayed in its own native Kitty
+tab.
+.PP
+Install the matching local binary and Kitty integration files before starting.
+SSH targets also need kittyplex and xterm-kitty terminfo installed.
+The original terminal is the group's carrier and must remain open.
+No separate SSH connection per session, forwarding setup or patched Kitty is
+needed.
+.PP
+There is no detach or reattach support.
+Connection loss or controller termination closes the group.
+.SH COMMANDS
+.SS No subcommand
+Start the controller in the current environment and directory.
+This also works after an ordinary interactive SSH login.
+New sessions execute $SHELL with \-i, falling back to /bin/sh \-i.
+.TP
+.BI \-\-heartbeat\-timeout " SECONDS"
+Connection-loss timeout; default 30 seconds, minimum 10.
+Heartbeats are sent every five seconds.
+This option is supported by the bare controller invocation only.
+.SS start
+Start a local group using the executing account's shell from the account
+database.
+.TP
+.B \-\-login
+Load that account's login environment before starting the controller.
+Default to its home directory rather than the caller's current directory.
+.TP
+.BI \-\-cwd " DIRECTORY"
+Set the initial directory.
+Without \-\-login, relative directories resolve from the current directory.
+With \-\-login, they resolve from the account's home, and the directory is
+applied
+after login initialization.
+In either case, ~ and ~/ resolve to that account's home.
+.SS run0
+Use run0 to start a group as another local user.
+Requires systemd version 258 or newer and normal Polkit authorization.
+The target receives its own login environment and account shell.
+Kittyplex executes its current binary by absolute path, which must be
+accessible
+to the target account; Nix store installations provide such a shared path.
+.TP
+.BR \-u " USER, " \-\-user " USER"
+Target user; default root.
+.TP
+.BR \-g " GROUP, " \-\-group " GROUP"
+Target primary group; default the target account's primary group.
+.TP
+.BR \-D " DIRECTORY, " \-\-chdir " DIRECTORY, " \-\-cwd " DIRECTORY"
+Initial directory; default the target's home.
+Relative paths resolve from the target's home, after login initialization.
+.TP
+.B \-\-pty
+Request transport PTY allocation before authentication completes.
+.TP
+.B \-\-pty\-late
+Leave authentication on the source terminal until authorization succeeds.
+This is the default and cannot be combined with \-\-pty.
+.TP
+.B \-\-no\-ask\-password
+Do not prompt for authentication.
+This requires authorization already permitted by the host's policy; it grants
+no access itself.
+.PP
+Value options accept separate values, \-\-option=value and attached short
+values
+such as \-ubob.
+Only the options listed here are accepted; this is not a general run0 argument
+wrapper.
+.SS ssh
+Connect using ordinary OpenSSH settings and automatically start the target
+controller
+with its account's login environment and home directory.
+.TP
+.BI \-\-remote\-binary " PATH"
+Target executable; default kittyplex on the SSH command PATH.
+That PATH may differ from an interactive login PATH.
+This names one executable, not a shell command.
+.TP
+.BI \-\-cwd " DIRECTORY"
+Initial directory on the target; default its home.
+Relative paths resolve from the target's home, and ~ and ~/ refer to that
+home.
+.PP
+Put connection options after \-\-, following the destination.
+For example, use user@server \-\- \-p 2222 \-J jump-host.
+The launcher supplies the remote command and forces a foreground PTY.
+It rejects \-N, \-f, \-T, \-n, \-O, \-W, \-G and conflicting \-o settings.
+No remote command can be supplied through the connection-options list.
+Targets must have a compatible kittyplex version (0.4 or newer for automatic
+startup).
+The launcher does not upload binaries or bootstrap Nix.
+.SS ctl
+Send one management command to an existing controller on the same host and
+account.
+.TP
+.BI \-\-socket " PATH"
+Controller socket; defaults to KITTYPLEX_SOCKET in managed shells.
+This is the target controller's socket, not the local display broker's socket.
+.TP
+.B new
+Create and select a shell.
+Acknowledgement is asynchronous: the new session may not yet appear in status.
+.TP
+.BR next , " previous"
+Select the next or previous session in creation order, wrapping around.
+.TP
+.BI select " N"
+Select a session by its current one-based position.
+Positions shift as sessions exit; reordering Kitty tabs does not change them.
+.TP
+.B status
+Print the selected position, ready-session count, session IDs and shell PIDs.
+.TP
+.B quit
+Close the entire group.
+.SS doctor
+Probe the local scoped Kitty callback without creating a group or changing
+user.
+Report the integration version, desktop API, carrier version, selected local
+binary,
+run0 version and SSH availability.
+Requires a real configured Kitty terminal, and can run in a managed view.
+Missing optional tools are reported without making an otherwise successful
+Kitty probe fail.
+The command does not verify remote installations or attempt authentication.
+.SH HELP AND VERSION
+Every public subcommand accepts \-h or \-\-help without requiring a terminal,
+controller socket, remote connection or authentication.
+The top-level \-V and \-\-version options print the program version.
+.SH KEYBOARD CONTROLS
+Press Ctrl-Shift-M, release it, then press an action key:
+.TP
+.B c
+Create and select a shell.
+.TP
+.BR n , " p"
+Select the next or previous session.
+.TP
+.B 1\(en9
+Select a session at that current position, if present.
+.TP
+.B q
+Close the group.
+.TP
+.B Escape
+Cancel management mode.
+.TP
+.B Ctrl-Shift-M
+Send one literal prefix chord to the application.
+.PP
+Management shortcuts apply only in managed views and end after one action.
+Ordinary Enter/Ctrl-M remains application input.
+Kitty's native tab selection and closure also work.
+.SH KITTY ACTIONS
+The supplied configuration defines kittyplex-local, kittyplex-run0 and
+kittyplex-ssh
+as trusted local Kitty actions, not shell commands.
+Bind them to shortcuts in kitty.conf if desired; no additional global
+shortcuts are installed.
+Actions create independent groups, including when invoked from an existing
+managed view.
+Direct CLI nesting is rejected.
+.PP
+For example, a Kitty mapping can contain:
+.PP
+.nf
+map ctrl+alt+f8 kittyplex\-run0 \-u bob \-\-pty
+.fi
+.SH ENVIRONMENT
+.TP
+.B KITTYPLEX_BINARY
+Absolute local binary override read by the Kitty integration.
+Set it before starting Kitty.
+Otherwise packaged helpers use their matching Nix store binary, falling back
+to PATH
+when running from a source installation.
+A remote environment variable cannot select the local binary.
+.TP
+.B KITTYPLEX_SOCKET
+Private controller socket, supplied to managed shells and used by ctl.
+Its presence also prevents nested CLI launches.
+.TP
+.B KITTYPLEX_SESSION
+Stable session ID supplied to a managed shell; distinct from its current
+position.
+.TP
+.B SHELL
+Interactive shell for a bare controller invocation, falling back to /bin/sh.
+The start, run0 and ssh bootstraps instead select the executing account's
+shell.
+.TP
+.B XDG_RUNTIME_DIR
+Preferred directory for the controller's private socket directory when usable;
+otherwise /tmp is used.
+.SH FILES
+In Kitty's configuration directory (normally ~/.config/kitty), install
+kittyplex.py,
+kittyplex_auth.py, kittyplex_watcher.py, kittyplex_launch.py and
+kittyplex.conf.
+Add include kittyplex.conf to the existing kitty.conf.
+The configuration enables password-mode remote control with a scoped callback.
+Use Kitty's actual configuration directory when it has been customized.
+.PP
+Nix packages provide the files under share/kittyplex/kitty and this manual
+under
+share/man/man1.
+Kitty configuration and source-build installation instructions are maintained
+at:
+.PP
+https://github.com/claes/kittyplex/blob/master/docs/integration-instructions.md
+.SH LIFECYCLE AND LIMITS
+New shells inherit the controller's initial directory and environment, rather
+than
+the most recently used shell's current directory.
+Login profiles must allow noninteractive commands to complete.
+Tabs for bootstrap-created groups retain a user@host identity prefix while
+following application title changes; titles are not an authentication proof.
+.PP
+Exiting a shell or closing its session tab ends that session.
+Exiting the last shell ends the group.
+Quitting closes owned views and restores the carrier's terminal settings.
+CLI launches return to their source shell.
+Kitty action launches close the carrier on success and retain errors until
+Enter is pressed.
+Unrelated Kitty windows and tabs are preserved.
+.PP
+Closing the carrier, losing transport, or losing the controller ends the
+group.
+Cleanup hangs up shells and foreground process groups; jobs deliberately
+ignoring
+hangup can survive.
+Bounded queues apply backpressure rather than discarding hidden-session
+output.
+The original-terminal carrier adds framing overhead and is experimental.
+.SH EXIT STATUS
+Local commands return zero on success and one on error.
+The run0 and ssh launchers replace themselves with their transport and
+therefore
+return its exit status, including target-command failure status.
+.SH EXAMPLES
+.nf
+kittyplex doctor
+kittyplex start
+kittyplex run0 \-u bob \-\-pty
+kittyplex run0 \-u bob \-D /srv/work
+kittyplex ssh user@server \-\- \-p 2222
+kittyplex ssh \-\-remote\-binary=/opt/kittyplex/bin/kittyplex server
+kittyplex ctl status
+kittyplex ctl \-\-socket /path/to/control.sock status
+kittyplex \-\-heartbeat\-timeout 60
+.fi
+.SH SEE ALSO
+.BR kitty (1),
+.BR ssh (1),
+.BR run0 (1)

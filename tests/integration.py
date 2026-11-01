@@ -48,7 +48,7 @@ if CAN_BIND:
 class StartupTests(unittest.TestCase):
     def test_help_describes_carrier_and_does_not_require_a_tty(self):
         result = subprocess.run([BINARY, "--help"], capture_output=True, check=True)
-        self.assertIn(b"kitty-owned", result.stdout)
+        self.assertIn(b"Kitty-owned", result.stdout)
         self.assertNotIn(b"Inactive output is discarded", result.stdout)
 
     def test_executable_and_help_use_project_identity(self):
@@ -57,6 +57,19 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), b"kittyplex 0.4.0")
         help_text = subprocess.check_output([BINARY, "run0", "--help"])
         self.assertIn(b"kittyplex run0", help_text)
+
+    def test_command_help_needs_no_terminal_or_controller(self):
+        env = dict(os.environ, KITTYPLEX_SOCKET="/nonexistent/control.sock")
+        for mode in ['start','run0','ssh','ctl','doctor']:
+            for flag in ['--help','-h']:
+                result=subprocess.run([BINARY,mode,flag],env=env,capture_output=True,check=True)
+                self.assertIn(('Usage: kittyplex '+mode).encode(),result.stdout)
+                self.assertNotIn(b'__broker',result.stdout)
+        result=subprocess.run([BINARY,'ctl','--socket','/missing','--help'],capture_output=True,check=True)
+        self.assertIn(b'Commands:',result.stdout)
+        result=subprocess.run([BINARY,'ssh','host','--','--help'],capture_output=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertNotIn(b'Usage:',result.stdout)
 
     def test_invalid_heartbeat_and_nested_start_fail(self):
         result = subprocess.run([BINARY, "--heartbeat-timeout", "1"], capture_output=True)

@@ -310,6 +310,6 @@ Useful existing code entry points are the
 [controller](../src/remote.rs), [PTY/process owner](../src/session.rs),
 [broker](../src/broker.rs), [relay](../src/view.rs), and
 [Kitty lifecycle integration](../kitty/kittyplex.py). The
-[existing verification record](kitty-compatibility.md#validation-record-2026-11-01-europestockholm)
+[existing verification record](kitty-compatibility.md#validation-record-native-tab-release-2026-11-01-europestockholm)
 describes current functionality only; it is not evidence that any proposed
 detach behavior works.

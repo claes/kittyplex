@@ -609,5 +609,5 @@ feature evidence is maintained in [compatibility](kitty-compatibility.md).
 
 For the implemented presentation, see the
 [guide](how-it-works.md#1-what-the-tabs-represent) and the
-[selection/lifecycle rules](../README.md#controls-and-lifecycle). These supersede
+[selection/lifecycle rules](usage.md#controls-and-lifecycle). These supersede
 the stack-tab candidate preserved in the original approach-1 proposal.

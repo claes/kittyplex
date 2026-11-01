@@ -22,15 +22,9 @@ For the process tree and role descriptions, see
 [which processes run where](how-it-works.md#2-which-processes-run-where).
 The exact invocation and endpoint contracts follow.
 
-`kittyplex [--heartbeat-timeout SECONDS]` starts the remote controller. The timeout
-is at least ten seconds and defaults to thirty. The controller samples cooked
-carrier termios before entering raw mode and seeds new application PTYs with that
-snapshot. Each spawned shell is a session leader with its own controlling PTY.
-
-`kittyplex ctl [--socket PATH] new|next|previous|select N|status|quit` uses the
-existing private remote Unix stream socket. `new` is asynchronous: it acknowledges
-a creation request before a ready shell is necessarily present. Shells receive
-`KITTYPLEX_SOCKET` and `KITTYPLEX_SESSION`.
+The public CLI is documented in [kittyplex(1)](kittyplex.1); everyday controls
+and lifecycle are in the [usage guide](usage.md). The following interfaces are
+internal transport contracts.
 
 `kittyplex __broker DIRECTORY GROUP CARRIER HELPER TIMEOUT` and
 `kittyplex __view DIRECTORY GROUP SESSION` are internal local interfaces, not user
@@ -38,7 +32,8 @@ commands. The broker requires kitty's inherited `KITTY_LISTEN_ON=fd:N` private
 remote-control descriptor. Its private directory is created locally with mode
 0700; `events.sock` receives datagrams and `views.sock` accepts relay streams.
 Remote paths and remote environment variables never select the local executable.
-`KITTYPLEX_BINARY` in kitty's startup environment, or its own PATH, selects it.
+`KITTYPLEX_BINARY` in Kitty's startup environment selects an override. Otherwise
+packaged helpers use their matching binary, with PATH as the source-build fallback.
 
 ## Bootstrap and data paths
 
@@ -55,8 +50,8 @@ reports closure.
 
 ## Native tab navigation and ownership
 
-The [user-facing selection and ownership rules](../README.md#controls-and-lifecycle)
-are maintained in the README. The guide explains
+The [user-facing selection and ownership rules](usage.md#controls-and-lifecycle)
+are maintained in the usage guide. The guide explains
 [how native focus and retained screens work](how-it-works.md#8-switching-resizing-and-graphics).
 Protocol routing uses stable group/session identities, independently of mutable
 tab titles or positions.
@@ -83,7 +78,7 @@ unchanged with `TIOCSWINSZ` to the corresponding remote application PTY. Unknown
 pixel dimensions remain zero; the carrier does not invent a cell size. All v2
 messages require the pixel fields, including messages where they are zero.
 Carrier v1 is not negotiated; use the
-[upgrade procedure](../README.md#upgrading-an-existing-installation).
+[upgrade procedure](integration-instructions.md#upgrading-an-existing-installation).
 The native Kitty remote-control version below is separate from kittyplex’s carrier
 version. Feature evidence is recorded in [compatibility](kitty-compatibility.md).
 
@@ -207,7 +202,7 @@ SIGKILL, host crashes, and severed links cannot perform an orderly close handsha
 
 ## Authorization and configuration
 
-Installation and upgrades are covered by the [README](../README.md#install-for-a-real-remote-server).
+Installation and upgrades are covered by the [README](integration-instructions.md#building-from-source).
 The configuration uses password mode with an empty-password custom authorization
 callback; no secret or public-key environment needs to be forwarded to the SSH
 server. The callback permits bounded protocol-v2 carrier calls from their
@@ -230,7 +225,7 @@ The demo scopes kitty configuration with the documented
 
 ## Demo, tests, and validation record
 
-Demo and verification commands live in the [README](../README.md#automated-verification).
+Demo and verification commands live in the [README](development.md#automated-verification).
 The fixture uses a separate Kitty process and a temporary localhost-only,
 unprivileged sshd. Generated host keys are pinned in temporary known hosts; the
 server disables password authentication and forwarding. `StrictModes no` is
@@ -253,7 +248,7 @@ p95 response time relative to direct SSH under the same test transport.
 
 Current test counts, tested versions, transport-delay coverage and untested
 scenarios are maintained in the
-[compatibility validation record](kitty-compatibility.md#validation-record-2026-11-01-europestockholm).
+[compatibility validation record](kitty-compatibility.md#validation-record-native-tab-release-2026-11-01-europestockholm).
 The dated initial records below are historical evidence, not a second current
 validation summary.
 

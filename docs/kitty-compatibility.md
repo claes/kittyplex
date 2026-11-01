@@ -13,7 +13,7 @@ Version 0.3 preserves pixel dimensions; the geometry cases below check this
 against each view's actual PTY. No `icat` override is needed when Kitty reports
 valid sizes. Exact fields, unknown-size semantics and resize handling belong to
 the [geometry contract](original-terminal-carrier.md#protocol-v2-kittyplex-03).
-Use the [README upgrade procedure](../README.md#upgrading-an-existing-installation)
+Use the [README upgrade procedure](integration-instructions.md#upgrading-an-existing-installation)
 when replacing an older installation.
 
 ## Automated evidence and remaining checks
@@ -114,14 +114,14 @@ by the existing scoped authorization callback.
 
 ## Reproduce and inspect interactively
 
-Use the [README verification commands](../README.md#automated-verification) for
+Use the [README verification commands](development.md#automated-verification) for
 the complete suite and its delayed-transport mode, or run just this audit:
 
 ```sh
 nix develop --command env KITTYPLEX_TEST_RTT_MS=100 python3 tests/compatibility.py
 ```
 
-The [guided graphics demo](../README.md#kitty-features-and-graphics) supplies
+The [guided graphics demo](usage.md#kitty-features-and-graphics) supplies
 temporary images and the basic switching/resize walkthrough. The following
 additional checks establish behavior that the localhost fixture cannot prove.
 

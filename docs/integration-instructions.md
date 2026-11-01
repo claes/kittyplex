@@ -1,6 +1,6 @@
 # Desktop integration
 
-Kittyplex 0.4 adds launchers for local shells, SSH and switching user with run0.
+Kittyplex provides launchers for local shells, SSH and switching user with run0.
 Kitty owns the screens; kittyplex owns the application PTYs. These launchers automate
 starting the existing original-terminal carrier design. They do not add another
 network service, SSH connection or terminal emulator.
@@ -32,9 +32,10 @@ Use [examples/flake-with-modules.nix](../examples/flake-with-modules.nix) as a
 complete consumer flake example. Copy its inputs and modules into your existing
 `flake.nix`; retain your host's `configuration.nix`, hardware imports, users and
 existing state versions. Replace `myhost`, `alice` and the system architecture.
-The repository URL is `github:claes/kittyplex`. Until these changes are published,
-use `path:/absolute/path/to/kittyplex` instead. Git-backed local flake URLs include only tracked files; add new project files
-to Git or use `path:` to include untracked files.
+Use `github:claes/kittyplex` for published code or
+`path:/absolute/path/to/kittyplex` for a local checkout. Git-backed local flake
+URLs include only tracked files; add new files to Git or use `path:` to include
+them.
 
 The essential imports are:
 
@@ -52,6 +53,23 @@ programs.kittyplex.run0.enable = true;
 home-manager.sharedModules = [ kittyplex.homeManagerModules.default ];
 home-manager.users.alice.programs.kittyplex.enable = true;
 ```
+
+The two `programs.kittyplex` blocks are in different scopes:
+
+| Scope | Purpose |
+| --- | --- |
+| NixOS `programs.kittyplex` | Install the CLI and terminfo for all users, plus optional run0 prerequisites |
+| `home-manager.users.alice.programs.kittyplex` | Configure Alice's Kitty integration and helper files |
+
+Importing a module makes its options available; setting `enable = true` activates
+it. The Home Manager module must be imported through `home-manager.sharedModules`
+or the user's Home Manager imports, separately from the NixOS module.
+
+If your user configuration is in a separate file, flake inputs are not automatic
+module arguments. For example, pass `home-manager.extraSpecialArgs = { inherit inputs; };`
+and request `{ inputs, pkgs, ... }` in that file, then use
+`inputs.kittyplex.packages.${pkgs.stdenv.hostPlatform.system}.default`. A direct
+`kittyplex` argument instead requires passing it explicitly in `extraSpecialArgs`.
 
 The complete example explicitly selects the same package for both modules. The
 NixOS module installs kittyplex and Kitty terminfo for all users, and links the
@@ -115,6 +133,27 @@ only once. Optional launch bindings are commented out in the example.
 Apply the configuration using your normal `nixos-rebuild switch --flake .#myhost`,
 then follow [Verify the setup](#verify-the-setup).
 
+## Building from source
+
+Linux and Kitty 0.47.4 are the implementation baseline, with additional checks
+on Kitty 0.49.1. A source build requires Rust 1.85 or newer:
+
+```sh
+cargo build --release --locked
+install -Dm755 target/release/kittyplex "$HOME/.local/bin/kittyplex"
+```
+
+Make that directory available on PATH before starting Kitty, or set
+`KITTYPLEX_BINARY` to the absolute binary path in Kitty's startup environment.
+The four source helpers and `kittyplex.conf` are in `kitty/`. Alternatively,
+`nix build path:.` produces `result/bin/kittyplex`, packaged integration assets
+and the manual page. Cargo builds the executable only; to install the manual
+separately, copy `docs/kittyplex.1` into your installation's `share/man/man1/`.
+
+Install compatible binaries locally and on SSH targets. Each host can build for
+its own architecture. Targets need `xterm-kitty` terminfo; no Nix installation
+is required if you supply a compatible binary and terminfo yourself.
+
 ## Manual Kitty configuration
 
 This path works with an existing `kitty.conf` and needs no Home Manager or
@@ -125,10 +164,15 @@ kittyplex integration module. Follow these steps as your desktop user.
 On NixOS, [examples/flake-manual.nix](../examples/flake-manual.nix) installs the
 package, Kitty, terminfo and run0's Polkit prerequisite using standard NixOS
 options only. It does **not** configure Kitty or install files in your home.
-Merge it into your host flake and rebuild before continuing. Run0 requires
+Merge it into your host flake and rebuild before continuing. Its `environment.pathsToLink` setting
+exposes the packaged files at `/run/current-system/sw/share/kittyplex`; it does
+not modify your shell's PATH or configure Kitty. Direct Home Manager package
+references in the previous example do not need that setting. Polkit enables
+run0 authorization under the existing host policy, without granting passwordless
+access. Run0 requires
 systemd >=258 and normal Polkit authorization.
 
-For a source build, use the [README build instructions](../README.md#install-for-a-real-remote-server).
+For a source build, use the [source build instructions](#building-from-source).
 Install the binary on your local PATH; SSH targets also need a compatible binary
 and `xterm-kitty` terminfo. The four Python helpers and `kittyplex.conf` are in
 `kitty/` in a checkout, or `share/kittyplex/kitty/` in a Nix package output.
@@ -241,100 +285,22 @@ Keep the four helper sources pointing to the package. Review the copied config
 when upgrading. Packaged helpers pin their local executable
 to the matching Nix store path, so Kitty need not inherit a particular shell PATH.
 `KITTYPLEX_BINARY`, set before Kitty starts, remains an explicit override for source
-development. End old groups, update targets and helpers together, and start fresh
-Kitty after upgrading. Carrier protocol stays v2; automatic launch requires 0.4's
-new target `start` command.
+development. See [upgrading](#upgrading-an-existing-installation) when replacing components.
+
+## Upgrading an existing installation
+
+End existing groups, update local and target binaries and all five integration
+files together, then start a **fresh Kitty process**. Reloading configuration can
+retain cached Python authorization code. Carrier v2 is incompatible with v1;
+see the [protocol contract](original-terminal-carrier.md#protocol-v2-kittyplex-03).
+Automatic SSH startup requires the target `start` command from version 0.4 or
+newer. The original login-then-run workflow remains supported.
 
 ## Launch and use
 
-From an ordinary shell in the configured Kitty:
-
-```sh
-kittyplex doctor
-kittyplex start                         # Local group, current directory.
-kittyplex start --login                 # Account login environment and home.
-kittyplex run0 -u bob                   # Target home and login shell; --pty-late.
-kittyplex run0 --user=bob --pty          # Explicit early PTY allocation.
-kittyplex run0 -u bob -g work -D /srv/work --pty
-kittyplex run0 --user=bob --cwd='/srv/a directory' --pty-late
-kittyplex run0                          # Root, with normal run0 authentication.
-kittyplex ssh user@server
-kittyplex ssh --cwd=/srv/work server -- -p 2222 -J jump-host
-kittyplex ssh --remote-binary=/opt/kittyplex/bin/kittyplex server
-```
-
-`run0` supports `-u`/`--user`, `-g`/`--group`, `-D`/`--chdir`/`--cwd`, including
-`--option=value` and attached short values such as `-ubob`. `--pty` and
-`--pty-late` are mutually exclusive; the default is `--pty-late`. Both require
-systemd >=258 in this launcher. Late allocation leaves authentication on the
-original terminal until authorization succeeds. `--no-ask-password` is available
-for already-authorized environments; it does not grant permission. This is a
-purpose-built launcher, not a complete pass-through of every run0 option.
-
-SSH uses your normal OpenSSH configuration, keys, host verification and prompts.
-Put connection options after `--`, after the destination. The launcher forces a
-foreground PTY and supplies the remote command; options such as `-N`, `-f`, `-T`,
-`-n`, `-O`, `-W` and conflicting `-o` settings are rejected. Remote paths are
-shell-quoted; `~` and `~/...` for `--cwd` are resolved by the target bootstrap,
-not the desktop shell. Relative explicit directories are relative to target home
-when launching with a login environment. `--remote-binary` names a single target
-executable, not a shell command. SSH servers with forced commands may disallow it.
-
-The bootstrap obtains the executing account's shell and home from the target's
-account database, runs its shell as a login shell to load environment settings,
-then starts the controller. Applications get that shell interactively, with job
-control. Login profiles must allow noninteractive commands; a profile that exits,
-executes another program or prints unbounded output can break startup. A session
-started for bob gets bob's home and shell, rather than inheriting the caller's
-`$SHELL`. Explicit `--cwd` is applied after login initialization. New sessions
-inherit the controller's initial directory, not the last foreground shell's cwd.
-
-Use Ctrl-Shift-M then `c`, `n`, `p`, a number or `q` as described in the
-[README controls](../README.md#controls-and-lifecycle). Automatically started groups
-label tabs `user@host · application title`; application title changes preserve the
-identity prefix. Identity labels are useful context, not an authentication proof:
-terminal applications can emit title sequences and target code is trusted.
-
-Quitting a CLI launch returns to the source shell. Kitty actions close their
-carrier on success and return focus to the source window if it still exists.
-Launch failures remain in their carrier until Enter is pressed, with diagnostics
-visible. Closing a carrier ends that group. Direct CLI nesting inside an existing
-managed view is rejected; use the Kitty action to create an independent group.
-There is no detach or reconnect after connection loss.
-
-## Processes and privilege boundaries
-
-```text
-Desktop UID (alice)                       Target UID (bob)
-Kitty + trusted action                   systemd service started by run0
-  carrier: kittyplex __launch-tab             target login shell
-             -> kittyplex run0                  -> kittyplex controller
-                  -> run0 <--- PTY bytes --->      -> PTY -> bob's shell/apps
-  kittyplex __broker
-  kittyplex __view -> Kitty session screen
-```
-
-Run0 asks systemd/Polkit to authorize a new service under the requested user.
-The target controller and its application PTYs belong to that user. Kitty, the
-broker and display relays keep the desktop UID. For SSH, replace run0 and its
-service with the SSH client, encrypted connection and server-side SSH processes;
-the controller runs under the SSH login account. For local launch, both sides
-use the desktop UID.
-
-The original terminal carries bounded bootstrap requests and all session traffic.
-The probe verifies the scoped Kitty callback before changing user or connecting;
-it creates no group or tabs. Its nonce binds the response to the request. The
-private Kitty control FD stays local to the broker; source session sockets,
-D-Bus addresses and arbitrary environment variables are not passed as run0
-arguments. Normal systemd service environment and target login configuration
-apply. OpenSSH's own environment-forwarding settings remain under your control.
-For detailed per-byte routing, use the [process guide](how-it-works.md).
-
-A dedicated kitten is useful for independent tabs and readable error handling;
-the Rust CLI owns argument parsing, preflight, transport execution and target
-bootstrap so behavior also works from an ordinary configured Kitty shell. A shell
-alias alone would miss those independent-tab and privilege-boundary requirements.
-No shell startup hooks, SSH aliases or custom Kitty build are required.
+After installation, follow the [usage guide](usage.md) for local, run0 and SSH
+workflows, controls and lifecycle. Use `kittyplex COMMAND --help` for a short
+summary or `man kittyplex` for all options and defaults.
 
 ## Troubleshooting and verification
 
@@ -353,19 +319,5 @@ No shell startup hooks, SSH aliases or custom Kitty build are required.
 - A group opens but graphics fail: consult the [compatibility reference](kitty-compatibility.md).
   Target terminfo and streamed graphics matter independently of authentication.
 
-```sh
-nix develop --command ./scripts/test.sh
-nix flake check path:.
-# Separate, potentially substantial NixOS VM build and actual multi-user test:
-nix build path:.#desktop-test -L
-```
-
-The normal suite tests desktop actions, preflight, automatic SSH startup, missing
-packages and cleanup in isolated Kitty/Xvfb. Real multi-user run0 tests live in
-`nix/desktop-test.nix`: target login shells (Bash, Zsh, Fish), both PTY modes,
-identity/home, controller socket ownership, local relay UIDs, explicit group/cwd
-and job control, plus authorization rejection. Its passwordless
-rule exists only inside that test VM. The VM requires a machine able to run NixOS
-VM tests; a skipped or unexecuted VM is not evidence of working authentication
-on your desktop. Module checks evaluate NixOS and Home Manager configurations,
-reject unrestricted remote control and parse generated Kitty configurations.
+For test commands, the separate cross-user run0 VM, documentation validation and
+benchmark reproduction, see the [development guide](development.md).

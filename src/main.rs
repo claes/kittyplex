@@ -2,6 +2,7 @@
 compile_error!("kittyplex currently supports Linux only");
 mod broker;
 mod control;
+mod help;
 mod launch;
 mod protocol;
 mod remote;
@@ -13,19 +14,6 @@ use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::time::Duration;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
-const HELP: &str = "kittyplex — remote PTYs with kitty-owned terminal screens
-
-Usage:
-  kittyplex [--heartbeat-timeout SECONDS]
-  kittyplex ctl [--socket PATH] new|next|previous|select N|status|quit
-  kittyplex start|run0|ssh|doctor [--help]
-
-Install the local kitty integration before starting kittyplex, locally or over
-ordinary SSH. Ctrl-Shift-M then c/n/p/1–9/q creates, selects, or closes sessions.
-Press the prefix twice to send it literally. No application bytes are reserved.
-Connection loss closes the group. No detach/reattach or terminal emulation.
-See README.md for installation and `nix run .#demo` for an isolated SSH demo.
-";
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -39,7 +27,7 @@ fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--help" | "-h") => {
-            print!("{HELP}");
+            print!("{}", help::ROOT);
             Ok(())
         }
         Some("--version" | "-V") => {

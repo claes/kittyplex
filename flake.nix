@@ -34,6 +34,13 @@
       checks = eachSystem (system: let pkgs = nixpkgs.legacyPackages.${system}; in {
         build = packageFor pkgs;
         modules = import ./nix/module-checks.nix { inherit pkgs nixpkgs home-manager; };
+        documentation = let package = packageFor pkgs; in pkgs.runCommand "kittyplex-documentation-check" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.mandoc ];
+        } ''
+          python3 ${package.src}/tests/documentation.py --root ${package.src} \
+            --binary ${package}/bin/kittyplex --lint-man --installed-man
+          touch $out
+        '';
         python = pkgs.runCommand "kittyplex-python-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           export PYTHONPYCACHEPREFIX="$TMPDIR/pycache"
           python3 -m compileall -q ${./kitty} ${./scripts}
@@ -42,7 +49,7 @@
       });
       devShells = eachSystem (system: let pkgs = nixpkgs.legacyPackages.${system}; in {
         default = pkgs.mkShell {
-          packages = with pkgs; [ cargo rustc rustfmt clippy python3 kitty openssh bash coreutils vim less xorg-server ];
+          packages = with pkgs; [ cargo rustc rustfmt clippy python3 kitty openssh bash coreutils vim less xorg-server mandoc ];
         };
       });
     };

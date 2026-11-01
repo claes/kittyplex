@@ -1,9 +1,9 @@
 # How kittyplex works
 
-Kitty remembers what each session looks like. Kittyplex keeps each session's
-programs running on the server. One existing SSH connection carries their
-traffic. Switching tabs selects an existing Kitty screen while the other
-applications keep running and updating their own screens.
+Kitty remembers what each session looks like. Kittyplex keeps its programs
+running in the selected local or remote account. With SSH, one connection
+carries all sessions' traffic. Switching tabs selects an existing Kitty screen
+while the other applications keep running and updating their own screens.
 
 This guide explains the running system, from the visible tabs to the individual
 processes and connections. For practical commands, start with the
@@ -91,12 +91,6 @@ shells can replace themselves with commands, and SSH's worker structure varies.
 The important distinction is that the local relay is not the remote shell. The
 broker does not run the remote applications.
 
-The desktop launchers can replace the manual SSH-login step with automatic target
-startup, or use run0 to start the controller as another local user. Their process
-ancestry and privilege boundary are documented in the
-[integration instructions](integration-instructions.md#processes-and-privilege-boundaries);
-the controller, broker, relay and PTY roles below are the same.
-
 The original remote login shell waits while its `kittyplex` command runs. When the
 controller exits normally, that shell resumes and gives you your original SSH
 prompt. Each managed shell is a separate child of the controller, with its own
@@ -106,6 +100,40 @@ The Python integration is code running **inside Kitty**, not another persistent
 Python server. Its no-UI kitten handlers and watchers receive callbacks from
 Kitty. They create/select views and hand messages to the broker; they do not run
 the bulk transfer loop. Those loops live in the Rust controller, broker and relays.
+
+### Desktop launchers and user switching
+
+```text
+Desktop UID (alice)                       Target UID (bob)
+Kitty + trusted action                   systemd service started by run0
+  carrier: kittyplex __launch-tab             target login shell
+             -> kittyplex run0                  -> kittyplex controller
+                  -> run0 <--- PTY bytes --->      -> PTY -> bob's shell/apps
+  kittyplex __broker
+  kittyplex __view -> Kitty session screen
+```
+
+Run0 asks systemd/Polkit to authorize a new service under the requested user.
+The target controller and its application PTYs belong to that user. Kitty, the
+broker and display relays keep the desktop UID. For SSH, replace run0 and its
+service with the SSH client, encrypted connection and server-side SSH processes;
+the controller runs under the SSH login account. For local launch, both sides
+use the desktop UID.
+
+The original terminal carries bounded bootstrap requests and all session traffic.
+The probe verifies the scoped Kitty callback before changing user or connecting;
+it creates no group or tabs. Its nonce binds the response to the request. The
+private Kitty control FD stays local to the broker; source session sockets,
+D-Bus addresses and arbitrary environment variables are not passed as run0
+arguments. Normal systemd service environment and target login configuration
+apply. OpenSSH's own environment-forwarding settings remain under your control.
+The following sections show the detailed per-byte routing.
+
+A dedicated kitten is useful for independent tabs and readable error handling;
+the Rust CLI owns argument parsing, preflight, transport execution and target
+bootstrap so behavior also works from an ordinary configured Kitty shell. A shell
+alias alone would miss those independent-tab and privilege-boundary requirements.
+No shell startup hooks, SSH aliases or custom Kitty build are required.
 
 ## 3. The PTYs connecting terminals to processes
 
@@ -344,7 +372,7 @@ As an alternative to a keyboard shortcut, `kittyplex ctl` starts a short-lived
 client on the server. It connects to the controller's remote Unix stream socket,
 identified by `KITTYPLEX_SOCKET`, and submits a management command. That bypasses
 the local shortcut path for submitting the command, but creating a view still
-requires the carrier round trip. See the [command-line usage](../README.md#command-line-control).
+requires the carrier round trip. See the [command-line usage](usage.md#command-line-control).
 
 ## 8. Switching, resizing and graphics
 
@@ -357,7 +385,7 @@ Native tab selection is immediate inside Kitty. A watcher forwards a focus event
 through `events.sock`, the broker and the carrier to inform the controller.
 These focus notifications are advisory under congestion; explicit management
 commands also identify their originating session. User-visible selection and
-numbering rules are in [the controls guide](../README.md#controls-and-lifecycle).
+numbering rules are in [the controls guide](usage.md#controls-and-lifecycle).
 
 When Kitty updates a view's PTY size, its relay receives a resize signal and
 reads the terminal dimensions. It forwards a session-tagged resize message over
@@ -397,7 +425,7 @@ shell can then resume without receiving leftover protocol frames. Connection
 loss uses closed connections and heartbeat timeouts to trigger cleanup rather
 than leaving a detached server. Detailed failure behavior and the shutdown
 handshake are specified in [lifecycle and failures](original-terminal-carrier.md#lifecycle-and-failures).
-The [README lifecycle guidance](../README.md#controls-and-lifecycle) describes
+The [README lifecycle guidance](usage.md#controls-and-lifecycle) describes
 what users should expect when closing tabs, quitting or losing the connection.
 
 ## 10. Finding the implementation

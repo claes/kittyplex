@@ -9,20 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-pub const HELP: &str = "Desktop launchers:
-  kittyplex start [--login] [--cwd DIRECTORY]
-  kittyplex run0 [-u USER|--user USER] [-g GROUP|--group GROUP]
-               [-D DIRECTORY|--chdir DIRECTORY|--cwd DIRECTORY]
-               [--pty|--pty-late] [--no-ask-password]
-  kittyplex ssh [--remote-binary PATH] [--cwd DIRECTORY] DESTINATION [-- SSH_OPTIONS...]
-  kittyplex doctor
-
-run0 defaults to root, target home/login environment and --pty-late (systemd >=258).
-SSH targets need kittyplex >=0.4 installed on PATH, or --remote-binary PATH.
-Quit finishes the launch. Use Kitty actions to open independent groups from a
-managed view. See docs/integration-instructions.md.
-";
-
 fn value(args: &[String], i: &mut usize, names: &[&str]) -> io::Result<Option<String>> {
     let arg = &args[*i];
     for name in names {
@@ -383,9 +369,11 @@ fn run0_version() -> io::Result<()> {
 }
 
 pub fn run(mode: &str, args: &[String]) -> io::Result<()> {
-    if args.iter().any(|s| s == "--help" || s == "-h") {
-        print!("{HELP}");
-        return Ok(());
+    if crate::help::requested(mode, args) {
+        if let Some(text) = crate::help::command(mode) {
+            print!("{text}");
+            return Ok(());
+        }
     }
     match mode {
         "start" => start(args, false),
