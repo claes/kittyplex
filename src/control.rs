@@ -58,7 +58,7 @@ impl Control {
         let mut random = [0; 8];
         File::open("/dev/urandom")?.read_exact(&mut random)?;
         let name = format!(
-            "termlab-{}-{:016x}",
+            "kittyplex-{}-{:016x}",
             std::process::id(),
             u64::from_ne_bytes(random)
         );
@@ -176,9 +176,9 @@ pub fn client(args: &[String]) -> io::Result<()> {
         (PathBuf::from(path), &args[2..])
     } else {
         (
-            std::env::var_os("TERMLAB_SOCKET")
+            std::env::var_os("KITTYPLEX_SOCKET")
                 .map(PathBuf::from)
-                .ok_or_else(|| invalid("set TERMLAB_SOCKET or pass --socket PATH"))?,
+                .ok_or_else(|| invalid("set KITTYPLEX_SOCKET or pass --socket PATH"))?,
             args,
         )
     };

@@ -23,7 +23,7 @@ class Fixture:
         self.rtt_ms = float(rtt_ms)
         if not 0 <= self.rtt_ms <= 2000:
             raise ValueError("test RTT must be between 0 and 2000 ms")
-        self.directory = Path(tempfile.mkdtemp(prefix="termlab-demo-"))
+        self.directory = Path(tempfile.mkdtemp(prefix="kittyplex-demo-"))
         self.server = None
         self.failed = True
         self.logs = []
@@ -106,14 +106,14 @@ LogLevel VERBOSE
         self.run(self.ssh + ["true"])
         conf = root / "kitty"
         conf.mkdir(mode=0o700)
-        for name in ("termlab.py", "termlab_auth.py", "termlab_watcher.py", "termlab_launch.py", "termlab.conf"):
+        for name in ("kittyplex.py", "kittyplex_auth.py", "kittyplex_watcher.py", "kittyplex_launch.py", "kittyplex.conf"):
             shutil.copy(self.integration / name, conf / name)
-        (conf / "kitty.conf").write_text("include termlab.conf\nconfirm_os_window_close 0\nshell_integration disabled\n")
+        (conf / "kitty.conf").write_text("include kittyplex.conf\nconfirm_os_window_close 0\nshell_integration disabled\n")
         # Clean Bash startup files, but retain the real user's home and identity.
-        (root / "bashrc").write_text("""PS1='remote session ${TERMLAB_SESSION:-carrier} \\w $ '
-if [ -z "${TERMLAB_SESSION:-}" ]; then
-    printf '\\nConnected through ordinary localhost SSH. Starting termlab.\\n'
-    termlab
+        (root / "bashrc").write_text("""PS1='remote session ${KITTYPLEX_SESSION:-carrier} \\w $ '
+if [ -z "${KITTYPLEX_SESSION:-}" ]; then
+    printf '\\nConnected through ordinary localhost SSH. Starting kittyplex.\\n'
+    kittyplex
     printf '\\nBack in the original SSH shell. Type exit to finish the demo.\\n'
 fi
 """)
@@ -122,8 +122,8 @@ fi
             media = assets(root / "feature-assets")
             command = shlex.join([shutil.which("python3"), str(Path(__file__).with_name("feature_demo.py")), "--show", str(media)])
             with (root / "bashrc").open("a") as rc:
-                rc.write("\ntermlab-features() { " + command + "; }\n")
-                rc.write("if [ -n \"${TERMLAB_SESSION:-}\" ]; then echo 'Run termlab-features for image, sizing and input checks.'; fi\n")
+                rc.write("\nkittyplex-features() { " + command + "; }\n")
+                rc.write("if [ -n \"${KITTYPLEX_SESSION:-}\" ]; then echo 'Run kittyplex-features for image, sizing and input checks.'; fi\n")
         shell = root / "shell"
         shell.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(shutil.which("bash")) +
                          " --noprofile --rcfile " + shlex.quote(str(root / "bashrc")) + " -i\n")
@@ -133,8 +133,8 @@ fi
                            SHELL=str(shell), TERM="xterm-kitty")
         remote = "exec env " + " ".join(shlex.quote(k + "=" + v) for k, v in environment.items()) + " " + shlex.quote(str(shell))
         self.command = self.ssh[:-1] + ["-tt", self.ssh[-1], remote]
-        self.env = dict(os.environ, KITTY_CONFIG_DIRECTORY=str(conf), TERMLAB_BINARY=self.binary)
-        self.kitty = ["kitty", "--config", str(conf / "kitty.conf"), "--title", "termlab SSH demo"]
+        self.env = dict(os.environ, KITTY_CONFIG_DIRECTORY=str(conf), KITTYPLEX_BINARY=self.binary)
+        self.kitty = ["kitty", "--config", str(conf / "kitty.conf"), "--title", "kittyplex SSH demo"]
 
     def __exit__(self, exc_type, exc, tb):
         if self.server is not None:
@@ -164,7 +164,7 @@ def main():
         parser.exit(1, "A graphical session is required. Run the demo from your desktop terminal.\n")
     print("Starting a private kitty process and real localhost SSH connection.\n"
           "Ctrl-Shift-M, c: new session tab; n/p or 1–9: switch; q: quit group.\n"
-          "Try: echo \"$TERMLAB_SESSION\"; tty\n"
+          "Try: echo \"$KITTYPLEX_SESSION\"; tty\n"
           "Use the Kitty tab bar or native tab shortcuts too; titles follow applications.\n"
           "Run vim in one session, switch away and back; its screen should persist.\n"
           "Hidden output: for i in $(seq 1 100); do echo counter-$i; sleep .1; done\n"
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-        print(f"termlab demo: {error}", file=sys.stderr)
+        print(f"kittyplex demo: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:
             print(error.stderr.decode(errors="replace"), file=sys.stderr)
         sys.exit(1)

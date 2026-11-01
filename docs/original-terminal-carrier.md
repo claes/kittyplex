@@ -22,23 +22,23 @@ For the process tree and role descriptions, see
 [which processes run where](how-it-works.md#2-which-processes-run-where).
 The exact invocation and endpoint contracts follow.
 
-`termlab [--heartbeat-timeout SECONDS]` starts the remote controller. The timeout
+`kittyplex [--heartbeat-timeout SECONDS]` starts the remote controller. The timeout
 is at least ten seconds and defaults to thirty. The controller samples cooked
 carrier termios before entering raw mode and seeds new application PTYs with that
 snapshot. Each spawned shell is a session leader with its own controlling PTY.
 
-`termlab ctl [--socket PATH] new|next|previous|select N|status|quit` uses the
+`kittyplex ctl [--socket PATH] new|next|previous|select N|status|quit` uses the
 existing private remote Unix stream socket. `new` is asynchronous: it acknowledges
 a creation request before a ready shell is necessarily present. Shells receive
-`TERMLAB_SOCKET` and `TERMLAB_SESSION`.
+`KITTYPLEX_SOCKET` and `KITTYPLEX_SESSION`.
 
-`termlab __broker DIRECTORY GROUP CARRIER HELPER TIMEOUT` and
-`termlab __view DIRECTORY GROUP SESSION` are internal local interfaces, not user
+`kittyplex __broker DIRECTORY GROUP CARRIER HELPER TIMEOUT` and
+`kittyplex __view DIRECTORY GROUP SESSION` are internal local interfaces, not user
 commands. The broker requires kitty's inherited `KITTY_LISTEN_ON=fd:N` private
 remote-control descriptor. Its private directory is created locally with mode
 0700; `events.sock` receives datagrams and `views.sock` accepts relay streams.
 Remote paths and remote environment variables never select the local executable.
-`TERMLAB_BINARY` in kitty's startup environment, or its own PATH, selects it.
+`KITTYPLEX_BINARY` in kitty's startup environment, or its own PATH, selects it.
 
 ## Bootstrap and data paths
 
@@ -61,7 +61,7 @@ are maintained in the README. The guide explains
 Protocol routing uses stable group/session identities, independently of mutable
 tab titles or positions.
 
-## Protocol v2 (termlab 0.3)
+## Protocol v2 (kittyplex 0.3)
 
 Every message is a JSON object with exactly these fields:
 
@@ -84,7 +84,7 @@ pixel dimensions remain zero; the carrier does not invent a cell size. All v2
 messages require the pixel fields, including messages where they are zero.
 Carrier v1 is not negotiated; use the
 [upgrade procedure](../README.md#upgrading-an-existing-installation).
-The native Kitty remote-control version below is separate from termlab’s carrier
+The native Kitty remote-control version below is separate from kittyplex’s carrier
 version. Feature evidence is recorded in [compatibility](kitty-compatibility.md).
 
 Controller-to-kitty calls use `ESC P @kitty-cmd JSON ESC \\`, kitty protocol
@@ -94,7 +94,7 @@ Acceptance means the callback handed off a datagram, not that kitty consumed the
 session's output. The helper acknowledges duplicates without forwarding them
 again and holds later sequence numbers busy until preceding messages arrive.
 
-Broker-to-controller messages use `ESC P @termlab: JSON ESC \\` inside kitty
+Broker-to-controller messages use `ESC P @kittyplex: JSON ESC \\` inside kitty
 `send-text` input directed only to the registered carrier window. This direction
 uses strict monotonic sequences; duplicates are ignored and gaps fail the group.
 Both kinds of DCS can be fragmented across reads or combined in one read. The
@@ -125,7 +125,7 @@ Carrier v2 is unchanged. `bootstrap.data` may contain a display identity such as
 keeps printable characters only and limits the result to 128 characters before
 using it as a tab-title prefix. This metadata is not an authorization identity.
 
-Desktop launchers first send an ordinary Kitty `kitten` request for `termlab.py`
+Desktop launchers first send an ordinary Kitty `kitten` request for `kittyplex.py`
 with arguments `["probe", NONCE]` and `no_response=false`. NONCE is exactly 32
 lowercase hexadecimal characters generated from 16 random bytes. The scoped
 callback permits this read-only request from its actual terminal, including a
@@ -202,7 +202,7 @@ then does the broker unregister the carrier and clean up local views. The
 controller restores termios after receiving the finish receipt. This barrier
 keeps late protocol frames out of the resumed SSH shell.
 
-There is no durable screen state in termlab and no detached process daemon.
+There is no durable screen state in kittyplex and no detached process daemon.
 SIGKILL, host crashes, and severed links cannot perform an orderly close handshake.
 
 ## Authorization and configuration
@@ -296,7 +296,7 @@ Screen reads observe kitty's parsed screen state, not physical display refresh.
 
 Raw samples: [localhost](benchmarks/original-carrier-localhost.json) and
 [100 ms added RTT](benchmarks/original-carrier-100ms.json). Reproduce with
-`python3 tests/benchmark.py --samples 100 --rtt-ms 100 --output /tmp/termlab.json`;
+`python3 tests/benchmark.py --samples 100 --rtt-ms 100 --output /tmp/kittyplex.json`;
 use `--rtt-ms 0` for the no-delay case. The delayed case meets the 100 ms
 additional-p95 target in this run. The localhost flood case exceeds that target;
 it remains a performance limitation of this implementation. Results vary with
@@ -340,7 +340,7 @@ and lists the investigations needed before selecting an implementation.
 The chosen initial policy is to end all sessions on transport/controller loss.
 A later implementation must separately design a durable remote PTY owner,
 authenticated reconnection, session discovery, and how fresh kitty screens recover
-state without termlab acquiring an emulator. An existing kitty process retaining
+state without kittyplex acquiring an emulator. An existing kitty process retaining
 views is different from reconnecting after those views have disappeared. Resolve
 that distinction before promising detach/reattach; do not silently change the
 current close-on-loss contract.

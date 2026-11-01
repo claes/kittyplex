@@ -1,4 +1,4 @@
-//! One byte relay per kitty window. Kitty, rather than termlab, parses its output.
+//! One byte relay per kitty window. Kitty, rather than kittyplex, parses its output.
 use crate::protocol::{self as p, Channel, Message};
 use crate::terminal::{Signals, Terminal};
 use std::collections::VecDeque;

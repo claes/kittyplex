@@ -1,6 +1,6 @@
-# How termlab works
+# How kittyplex works
 
-Kitty remembers what each session looks like. Termlab keeps each session's
+Kitty remembers what each session looks like. Kittyplex keeps each session's
 programs running on the server. One existing SSH connection carries their
 traffic. Switching tabs selects an existing Kitty screen while the other
 applications keep running and updating their own screens.
@@ -36,29 +36,29 @@ state, with different owners.
 
 | Term | Meaning in this system |
 | --- | --- |
-| Process | A running program, such as SSH, Bash, Vim, or a termlab relay |
+| Process | A running program, such as SSH, Bash, Vim, or a kittyplex relay |
 | Terminal emulator | The program that interprets terminal output as text, colors, cursor movements, images and other screen behavior; Kitty performs this job |
 | Shell | A program such as Bash that reads commands and starts other programs |
 | PTY | A pseudoterminal: an operating-system connection that provides terminal input/output and behavior such as job control; it does not draw a screen |
 | Socket | A connection used by processes to exchange data; a Unix-domain socket connects processes on the same machine |
 | File descriptor | A process's handle to an open resource, such as a PTY or socket |
 | Session | One remote application PTY and its shell/application, connected to one local Kitty view |
-| Group | The sessions managed by one remote termlab controller and its shared carrier |
+| Group | The sessions managed by one remote kittyplex controller and its shared carrier |
 
 ## 2. Which processes run where
 
-One termlab executable serves several roles. Arguments select the role; you
+One kittyplex executable serves several roles. Arguments select the role; you
 normally start the controller and the integration starts its local counterparts.
 
 | Invocation | Location | Responsibility |
 | --- | --- | --- |
-| `termlab start [--login]` | Local or target account | Login/bootstrap entry point, then the same controller |
-| `termlab run0 …` / `termlab ssh …` | Your computer | Foreground transport launcher; automatically starts the target controller |
-| `termlab __launch-tab …` | Your computer | Waits for a Kitty action launch; keeps failures readable until dismissed |
-| `termlab` | Server | The controller: creates application PTYs and shells, manages sessions, and multiplexes traffic |
-| `termlab __broker …` | Your computer | The broker: routes traffic between the Kitty integration and the session relays |
-| `termlab __view … SESSION_ID` | Your computer, one per session | A relay: transfers bytes between its local terminal and the broker |
-| `termlab ctl …` | Usually the server | A short-lived management client; it is not needed for ordinary typing or output |
+| `kittyplex start [--login]` | Local or target account | Login/bootstrap entry point, then the same controller |
+| `kittyplex run0 …` / `kittyplex ssh …` | Your computer | Foreground transport launcher; automatically starts the target controller |
+| `kittyplex __launch-tab …` | Your computer | Waits for a Kitty action launch; keeps failures readable until dismissed |
+| `kittyplex` | Server | The controller: creates application PTYs and shells, manages sessions, and multiplexes traffic |
+| `kittyplex __broker …` | Your computer | The broker: routes traffic between the Kitty integration and the session relays |
+| `kittyplex __view … SESSION_ID` | Your computer, one per session | A relay: transfers bytes between its local terminal and the broker |
+| `kittyplex ctl …` | Usually the server | A short-lived management client; it is not needed for ordinary typing or output |
 
 For two sessions, a typical process arrangement is:
 
@@ -69,16 +69,16 @@ YOUR COMPUTER
    │  └─ local shell
    │     └─ ssh server
    ├─ Background process
-   │  └─ termlab __broker ...
+   │  └─ kittyplex __broker ...
    ├─ Session 1 terminal, in its own tab
-   │  └─ termlab __view ... 1
+   │  └─ kittyplex __view ... 1
    └─ Session 2 terminal, in its own tab
-      └─ termlab __view ... 2
+      └─ kittyplex __view ... 2
 
 REMOTE SERVER
 └─ sshd connection-handling process(es)
    └─ original remote login shell
-      └─ termlab
+      └─ kittyplex
          ├─ session 1 shell
          │  └─ vim
          └─ session 2 shell
@@ -97,7 +97,7 @@ ancestry and privilege boundary are documented in the
 [integration instructions](integration-instructions.md#processes-and-privilege-boundaries);
 the controller, broker, relay and PTY roles below are the same.
 
-The original remote login shell waits while its `termlab` command runs. When the
+The original remote login shell waits while its `kittyplex` command runs. When the
 controller exits normally, that shell resumes and gives you your original SSH
 prompt. Each managed shell is a separate child of the controller, with its own
 application PTY and job-control context.
@@ -111,7 +111,7 @@ the bulk transfer loop. Those loops live in the Rust controller, broker and rela
 
 An ordinary interactive SSH login already has two PTYs: a local one connecting
 Kitty to the SSH client, and a remote one connecting SSH's server side to the
-login shell. Termlab adds a local view PTY and a remote application PTY for each
+login shell. Kittyplex adds a local view PTY and a remote application PTY for each
 session.
 
 This diagram shows PTY ownership and the SSH connection. The broker's sockets are
@@ -134,7 +134,7 @@ flowchart LR
     subgraph Remote["Remote server"]
         D["SSH server worker"]
         RP["Remote carrier PTY"]
-        M["Termlab controller"]
+        M["Kittyplex controller"]
         AP["Remote application PTY"]
         A["Session shell / application"]
         D <-->|Master side| RP
@@ -250,7 +250,7 @@ original terminal and application terminal output in the session terminal.
 Vim's cursor/color commands are data inside the carrier envelope, so they do not
 accidentally operate on the carrier's screen.
 
-Termlab understands its own framing and routing but does not interpret the
+Kittyplex understands its own framing and routing but does not interpret the
 application's screen commands. Kitty handles partial escape sequences and UTF-8,
 cursor position, terminal modes, scrollback and graphics separately for each view.
 
@@ -302,7 +302,7 @@ settings, which the shell or application can change normally. With a shell
 running `sleep` and signal processing enabled, Ctrl-C travels as an input byte
 until it reaches that application PTY; the kernel then generates SIGINT for its
 foreground process group. An application using raw input may handle the byte
-itself. Termlab does not emulate job control.
+itself. Kittyplex does not emulate job control.
 
 ## 7. Startup and session creation
 
@@ -340,9 +340,9 @@ Readiness-before-spawn ensures the shell starts with an existing view and its
 actual dimensions, including pixels. The local view is created in the carrier's
 Kitty OS window even if an unrelated window is selected.
 
-As an alternative to a keyboard shortcut, `termlab ctl` starts a short-lived
+As an alternative to a keyboard shortcut, `kittyplex ctl` starts a short-lived
 client on the server. It connects to the controller's remote Unix stream socket,
-identified by `TERMLAB_SOCKET`, and submits a management command. That bypasses
+identified by `KITTYPLEX_SOCKET`, and submits a management command. That bypasses
 the local shortcut path for submitting the command, but creating a view still
 requires the carrier round trip. See the [command-line usage](../README.md#command-line-control).
 
@@ -370,14 +370,14 @@ Those bytes follow the output path to the local Kitty graphics manager, which
 stores and renders them in that session's screen. Applications also query their
 PTY's dimensions, so correct output transport alone is insufficient: that PTY's
 pixel metadata must be synchronized too. Exact geometry rules belong to the
-[protocol contract](original-terminal-carrier.md#protocol-v2-termlab-03);
+[protocol contract](original-terminal-carrier.md#protocol-v2-kittyplex-03);
 filesystem-dependent transfer methods are covered by the
 [compatibility boundaries](kitty-compatibility.md#host-and-policy-boundaries).
 
 ## 9. Backpressure and process teardown
 
 All sessions share the connection and finite processing capacity. If a downstream
-endpoint cannot accept more data, termlab bounds its queues and slows upstream
+endpoint cannot accept more data, kittyplex bounds its queues and slows upstream
 producers instead of discarding output. Relays acknowledge consumption after
 writing bytes into their local terminal endpoint; that does not mean a physical
 display frame has been rendered. The exact budgets and scheduling policy are in
@@ -411,5 +411,5 @@ what users should expect when closing tabs, quitting or losing the connection.
 | Per-view byte relay and geometry reporting | [view.rs](../src/view.rs) |
 | Framing and local stream channels | [protocol.rs](../src/protocol.rs) |
 | Remote command socket and short-lived client | [control.rs](../src/control.rs) |
-| Kitty launch, carrier handoff and authorization | [termlab.py](../kitty/termlab.py), [termlab_auth.py](../kitty/termlab_auth.py) |
-| Native focus and close callbacks | [termlab_watcher.py](../kitty/termlab_watcher.py) |
+| Kitty launch, carrier handoff and authorization | [kittyplex.py](../kitty/kittyplex.py), [kittyplex_auth.py](../kitty/kittyplex_auth.py) |
+| Native focus and close callbacks | [kittyplex_watcher.py](../kitty/kittyplex_watcher.py) |

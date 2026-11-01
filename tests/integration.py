@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from demo import Fixture
 
-INTEGRATION = Path(os.environ.get("TERMLAB_TEST_INTEGRATION", ROOT / "kitty"))
-BINARY = Path(os.environ.get("TERMLAB_TEST_BINARY", ROOT / "target/debug/termlab"))
+INTEGRATION = Path(os.environ.get("KITTYPLEX_TEST_INTEGRATION", ROOT / "kitty"))
+BINARY = Path(os.environ.get("KITTYPLEX_TEST_BINARY", ROOT / "target/debug/kittyplex"))
 
 
 def can_bind():
@@ -51,11 +51,19 @@ class StartupTests(unittest.TestCase):
         self.assertIn(b"kitty-owned", result.stdout)
         self.assertNotIn(b"Inactive output is discarded", result.stdout)
 
+    def test_executable_and_help_use_new_identity(self):
+        self.assertEqual(BINARY.name, "kittyplex")
+        result = subprocess.run([BINARY, "--version"], capture_output=True, check=True)
+        self.assertEqual(result.stdout.strip(), b"kittyplex 0.4.0")
+        help_text = subprocess.check_output([BINARY, "run0", "--help"])
+        self.assertIn(b"kittyplex run0", help_text)
+        self.assertNotIn(b"termlab", help_text)
+
     def test_invalid_heartbeat_and_nested_start_fail(self):
         result = subprocess.run([BINARY, "--heartbeat-timeout", "1"], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"at least 10", result.stderr)
-        result = subprocess.run([BINARY], env=dict(os.environ, TERMLAB_SOCKET="/unused"), capture_output=True)
+        result = subprocess.run([BINARY], env=dict(os.environ, KITTYPLEX_SOCKET="/unused"), capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"nested", result.stderr)
 
@@ -89,7 +97,7 @@ class KittySSHCase(unittest.TestCase):
             raise unittest.SkipTest("no graphical display or Xvfb; real kitty E2E not run")
 
     def setUp(self):
-        self.fixture = Fixture(BINARY, INTEGRATION, rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"), features=getattr(self, "features", False))
+        self.fixture = Fixture(BINARY, INTEGRATION, rtt_ms=os.environ.get("KITTYPLEX_TEST_RTT_MS", "0"), features=getattr(self, "features", False))
         self.fixture.__enter__()
         self.addCleanup(self.cleanup)
         self.control = self.fixture.directory / "test-control.sock"
@@ -128,7 +136,7 @@ class KittySSHCase(unittest.TestCase):
     def cleanup(self):
         outcome = self._outcome.result
         failed = any(test is self for test, _ in outcome.failures + outcome.errors)
-        if failed and os.environ.get("TERMLAB_TEST_RUN0_USER"):
+        if failed and os.environ.get("KITTYPLEX_TEST_RUN0_USER"):
             print(subprocess.run(["ps", "-eo", "user,pid,ppid,pgid,sid,stat,wchan:25,args"], capture_output=True, text=True).stdout, flush=True)
         process = getattr(self, "process", None)
         if failed and process and process.poll() is None and hasattr(self, "encrypt"):
@@ -180,10 +188,10 @@ class KittySSHCase(unittest.TestCase):
                      and (os_window_id is None or w["os_window_id"] == os_window_id)), None)
 
     def views(self):
-        return [window for window in self.windows() if "termlab_session" in window.get("user_vars", {})]
+        return [window for window in self.windows() if "kittyplex_session" in window.get("user_vars", {})]
 
     def wait_for(self, condition, timeout=15):
-        deadline = time.monotonic() + timeout * float(os.environ.get("TERMLAB_TEST_TIMEOUT_FACTOR", "1"))
+        deadline = time.monotonic() + timeout * float(os.environ.get("KITTYPLEX_TEST_TIMEOUT_FACTOR", "1"))
         last = None
         while time.monotonic() < deadline:
             try:
@@ -205,7 +213,7 @@ class KittySSHCase(unittest.TestCase):
         self.rpc("send-text", dict(match=f"id:{window}", data="text:" + text))
 
     def manage(self, window, *args):
-        self.rpc("kitten", dict(match=f"id:{window}", kitten=str(ROOT / "kitty/termlab.py"), args=list(args)))
+        self.rpc("kitten", dict(match=f"id:{window}", kitten=str(ROOT / "kitty/kittyplex.py"), args=list(args)))
 
     def create(self, window):
         old = {w["id"] for w in self.views()}
@@ -224,8 +232,8 @@ class KittySSHCase(unittest.TestCase):
 class CarrierTests(KittySSHCase):
     def test_native_tabs_titles_navigation_and_creation_order(self):
         first = next(w for w in self.views() if w["id"] == self.first)
-        carrier = next(w for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
-        self.assertEqual(first["tab_title"], "termlab 1")
+        carrier = next(w for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))
+        self.assertEqual(first["tab_title"], "kittyplex 1")
         second = self.create(self.first)
         windows = self.windows()
         second_view = next(w for w in windows if w["id"] == second)
@@ -238,7 +246,7 @@ class CarrierTests(KittySSHCase):
         # control socket once, then query it without injecting management input.
         path = self.fixture.directory / "remote-control-path"
         prompts = self.text(self.first).count("remote session 1")
-        self.send(self.first, "printf '%s' \"$TERMLAB_SOCKET\" >" + shlex.quote(str(path)) + "\n")
+        self.send(self.first, "printf '%s' \"$KITTYPLEX_SOCKET\" >" + shlex.quote(str(path)) + "\n")
         self.wait_for(lambda: path.exists() and path.read_text())
         self.wait_for(lambda: self.text(self.first).count("remote session 1") > prompts)
         def status():
@@ -264,7 +272,7 @@ class CarrierTests(KittySSHCase):
         self.wait_for(lambda: next(w for w in self.views() if w["id"] == second)["tab_title"] == "session-tab-title")
 
     def test_tab_creation_and_cleanup_preserve_unrelated_windows(self):
-        carrier = next(w for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        carrier = next(w for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))
         first = next(w for w in self.views() if w["id"] == self.first)
         # Even when another OS window is selected, create in the carrier's OS window.
         unrelated = int(self.rpc("launch", dict(type="os-window", args=[shutil.which("sleep"), "120"])))
@@ -276,7 +284,7 @@ class CarrierTests(KittySSHCase):
                          [w for w in self.windows() if w["os_window_id"] == carrier["os_window_id"]][-1]["tab_id"])
         self.rpc("focus-window", dict(match=f"id:{unrelated}"))
         self.assertEqual(len(self.views()), 2)
-        # An ordinary window manually added to a session tab is not owned by termlab.
+        # An ordinary window manually added to a session tab is not owned by kittyplex.
         ordinary = int(self.rpc("launch", dict(type="window", match=f'id:{first["tab_id"]}',
                        args=[shutil.which("sleep"), "120"])))
         self.assertEqual(next(w for w in self.windows() if w["id"] == ordinary)["tab_id"], first["tab_id"])
@@ -289,7 +297,7 @@ class CarrierTests(KittySSHCase):
         self.assertTrue({carrier["id"], unrelated, ordinary} <= {w["id"] for w in self.windows()})
         self.rpc("close-window", dict(match=f"id:{ordinary}"))
         self.rpc("close-window", dict(match=f"id:{unrelated}"))
-        self.send(carrier["id"], "termlab\n")
+        self.send(carrier["id"], "kittyplex\n")
         self.wait_for(lambda: len(self.views()) == 1)
         last = self.views()[0]
         self.wait_text(last["id"], "remote session 1")
@@ -351,7 +359,7 @@ class CarrierTests(KittySSHCase):
         self.wait_text(carrier, "RESTORED_SHELL")
 
     def test_vim_state_and_real_resize(self):
-        self.send(self.first, "vim -Nu NONE -i NONE /tmp/termlab-vim-" + secrets.token_hex(6) + "\n")
+        self.send(self.first, "vim -Nu NONE -i NONE /tmp/kittyplex-vim-" + secrets.token_hex(6) + "\n")
         time.sleep(.3)
         self.send(self.first, "iVIM_RETAINED_CONTENT\x1b")
         self.wait_text(self.first, "VIM_RETAINED_CONTENT")
@@ -371,7 +379,7 @@ class CarrierTests(KittySSHCase):
         self.wait_for(lambda: len(self.views()) == 2, timeout=35)
         second = next(w for w in self.views() if w["id"] != self.first)
         first = next(w for w in self.views() if w["id"] == self.first)
-        self.assertNotEqual(first["user_vars"]["termlab_group"], second["user_vars"]["termlab_group"])
+        self.assertNotEqual(first["user_vars"]["kittyplex_group"], second["user_vars"]["kittyplex_group"])
         self.wait_text(second["id"], "remote session 1")
         self.manage(self.first, "quit")
         self.wait_for(lambda: len(self.views()) == 1)
@@ -393,7 +401,7 @@ class CarrierTests(KittySSHCase):
         self.assertIn("€PARTIAL_RETAINED",self.text(self.first))
 
     def test_repeated_quit_and_restart_restores_carrier(self):
-        carrier = next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        carrier = next(w["id"] for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))
         view = self.first
         for iteration in range(3):
             previous = self.text(carrier).count("remote session carrier")
@@ -405,7 +413,7 @@ class CarrierTests(KittySSHCase):
             self.send(carrier, f"printf 'RESTORED_%s\\n' {iteration}\n")
             self.wait_text(carrier, marker)
             if iteration != 2:
-                self.send(carrier, "termlab\n")
+                self.send(carrier, "kittyplex\n")
                 self.wait_for(lambda: len(self.views()) == 1)
                 view = self.views()[0]["id"]
                 self.wait_text(view, "remote session 1")
@@ -429,10 +437,10 @@ class CarrierTests(KittySSHCase):
         return result
 
     def check_failure_returns_to_shell(self, root, internal, signum):
-        carrier=next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars",{}))
+        carrier=next(w["id"] for w in self.windows() if "kittyplex_session" not in w.get("user_vars",{}))
         def target():
             for pid,args in self.owned_processes(root):
-                if args and Path(args[0]).name=="termlab" and (args[1:2]==[internal] if internal else len(args)==1):
+                if args and Path(args[0]).name=="kittyplex" and (args[1:2]==[internal] if internal else len(args)==1):
                     return pid
         pid=self.wait_for(target)
         os.kill(pid,signum)
@@ -451,7 +459,7 @@ class CarrierTests(KittySSHCase):
         second = self.create(self.first)
         self.rpc("close-window", dict(match=f"id:{second}"))
         self.wait_for(lambda: len(self.views()) == 1)
-        carrier = next(w["id"] for w in self.windows() if "termlab_session" not in w.get("user_vars", {}))
+        carrier = next(w["id"] for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))
         self.rpc("close-window", dict(match=f"id:{carrier}"))
         self.wait_for(lambda: self.process.poll() is not None, timeout=35)
 

@@ -1,4 +1,4 @@
-"""Kitty adapter for termlab. Bulk transport and process management live in Rust."""
+"""Kitty adapter for kittyplex. Bulk transport and process management live in Rust."""
 import json
 import os
 import shutil
@@ -10,15 +10,15 @@ from kitty.constants import config_dir
 from kitty.fast_data_types import get_options
 
 # Kitty compiles custom kittens without defining __file__.
-DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "termlab.py")))
+DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "kittyplex.py")))
 
 PACKAGED_BINARY = None
 
 
 def binary_path():
-    binary = os.environ.get("TERMLAB_BINARY") or PACKAGED_BINARY or shutil.which("termlab")
+    binary = os.environ.get("KITTYPLEX_BINARY") or PACKAGED_BINARY or shutil.which("kittyplex")
     if not binary:
-        raise ValueError("install termlab locally or set TERMLAB_BINARY before starting Kitty")
+        raise ValueError("install kittyplex locally or set KITTYPLEX_BINARY before starting Kitty")
     return os.path.abspath(binary)
 
 
@@ -65,26 +65,26 @@ def event(group, kind, session=0, data=""):
 
 
 def groups(boss):
-    if not hasattr(boss, "_termlab_groups"):
-        boss._termlab_groups = {}
-    return boss._termlab_groups
+    if not hasattr(boss, "_kittyplex_groups"):
+        boss._kittyplex_groups = {}
+    return boss._kittyplex_groups
 
 
 def start(boss, window, message):
     from kitty.launch import launch, parse_launch_args
     from kitty.window import Watchers
     binary = binary_path()
-    directory = tempfile.mkdtemp(prefix="termlab-kitty-")
+    directory = tempfile.mkdtemp(prefix="kittyplex-kitty-")
     state = dict(carrier=window.id, directory=directory, views={},
                  seq=0, binary=os.path.abspath(binary),
                  context="".join(c for c in message["data"] if c.isprintable())[:128])
     groups(boss)[message["g"]] = state
-    window.set_user_var("termlab_group", message["g"])
+    window.set_user_var("kittyplex_group", message["g"])
     watcher = Watchers()
     watcher.on_close.append(carrier_closed)
     window.watchers.add(watcher)
     state["on_close"] = carrier_closed
-    helper = os.path.join(DIRECTORY, "termlab.py")
+    helper = os.path.join(DIRECTORY, "kittyplex.py")
     opts, cmd = parse_launch_args([
         "--type=background", "--allow-remote-control", state["binary"],
         "__broker", directory, message["g"], str(window.id), helper,
@@ -93,12 +93,12 @@ def start(boss, window, message):
         if message["g"] in groups(boss):
             local(boss, event(message["g"], "cleanup"))
             shutil.rmtree(directory, ignore_errors=True)
-            boss.show_error("termlab", "Local broker exited unexpectedly; see kitty stderr for details")
+            boss.show_error("kittyplex", "Local broker exited unexpectedly; see kitty stderr for details")
     try:
         launch(boss, opts, cmd, rc_from_window=window, child_death_callback=broker_exited)
     except Exception:
         groups(boss).pop(message["g"], None)
-        window.set_user_var("termlab_group", None)
+        window.set_user_var("kittyplex_group", None)
         window.watchers.on_close.remove(carrier_closed)
         shutil.rmtree(directory, ignore_errors=True)
         raise
@@ -106,7 +106,7 @@ def start(boss, window, message):
 
 
 def carrier_closed(boss, window, data):
-    group = window.user_vars.get("termlab_group")
+    group = window.user_vars.get("kittyplex_group")
     state = groups(boss).pop(group, None)
     if state:
         try:
@@ -130,13 +130,13 @@ def local(boss, m):
         views = [boss.window_id_map[w] for w in state["views"].values()
                  if w in boss.window_id_map]
         for w in views:
-            w.set_user_var("termlab_socket", None)
+            w.set_user_var("kittyplex_socket", None)
         if views:
             boss.close_windows_no_confirm(views)
         if carrier:
             if state.get("on_close") in carrier.watchers.on_close:
                 carrier.watchers.on_close.remove(state["on_close"])
-            carrier.set_user_var("termlab_group", None)
+            carrier.set_user_var("kittyplex_group", None)
             boss.set_active_window(carrier)
         return
     if not carrier:
@@ -151,17 +151,17 @@ def local(boss, m):
         endpoint = os.path.join(state["directory"], "events.sock")
         opts, cmd = parse_launch_args([
             "--type=tab", "--location=last",
-            "--watcher=" + os.path.join(DIRECTORY, "termlab_watcher.py"),
-            "--var=termlab_socket=" + endpoint,
-            "--var=termlab_group=" + m["g"],
-            "--var=termlab_session=" + str(m["id"]),
-            "--var=termlab_context=" + state["context"],
+            "--watcher=" + os.path.join(DIRECTORY, "kittyplex_watcher.py"),
+            "--var=kittyplex_socket=" + endpoint,
+            "--var=kittyplex_group=" + m["g"],
+            "--var=kittyplex_session=" + str(m["id"]),
+            "--var=kittyplex_context=" + state["context"],
             state["binary"], "__view", state["directory"], m["g"], str(m["id"])])
         view = launch(boss, opts, cmd, target_tab=carrier.tabref(), rc_from_window=carrier)
         if view is None:
             raise ValueError("kitty did not create a session view")
         # Set an initial child title without pinning an override that blocks OSC 2.
-        view.title_changed(memoryview(("termlab " + str(m["id"])).encode()))
+        view.title_changed(memoryview(("kittyplex " + str(m["id"])).encode()))
         state["views"][m["id"]] = view.id
     elif m["kind"] == "select":
         window = boss.window_id_map.get(state["views"].get(m["id"]))
@@ -184,7 +184,7 @@ def handle_result(args, answer, target_window_id, boss):
                 raise ValueError("Kitty must use scoped password-mode remote control")
             binary = binary_path()
             if not os.access(binary, os.X_OK):
-                raise ValueError("configured local termlab binary is not executable")
+                raise ValueError("configured local kittyplex binary is not executable")
             return json.dumps(dict(nonce=args[2], desktop_api=1, carrier=2, version="0.4.0", binary=binary))
         if len(args) == 3 and args[1] == "_local":
             # Only the broker's inherited private kitty FD can reach this branch:
@@ -199,7 +199,7 @@ def handle_result(args, answer, target_window_id, boss):
                     return f'accepted:{m["seq"]}'
                 if m["kind"] != "bootstrap" or m["seq"] != 1:
                     raise ValueError("carrier group has not bootstrapped")
-                if window.user_vars.get("termlab_group"):
+                if window.user_vars.get("kittyplex_group"):
                     raise ValueError("carrier already belongs to a group")
                 state = start(boss, window, m)
             if state["carrier"] != window.id:
@@ -220,12 +220,12 @@ def handle_result(args, answer, target_window_id, boss):
             f"select {n}" for n in range(1, 10)
         }:
             raise ValueError("unknown management command")
-        endpoint = window.user_vars.get("termlab_socket")
-        group = window.user_vars.get("termlab_group")
+        endpoint = window.user_vars.get("kittyplex_socket")
+        group = window.user_vars.get("kittyplex_group")
         if endpoint and group:
-            emit(endpoint, event(group, "command", int(window.user_vars.get("termlab_session", "0")), data=command))
+            emit(endpoint, event(group, "command", int(window.user_vars.get("kittyplex_session", "0")), data=command))
     except (ValueError, OSError, TypeError, KeyError) as error:
         if len(args) > 1 and args[1] == "carrier":
             return "error:" + str(error)
-        boss.show_error("termlab", str(error))
+        boss.show_error("kittyplex", str(error))
         return "busy"

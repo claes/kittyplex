@@ -51,8 +51,8 @@ impl Session {
         let mut command = Command::new(shell);
         command
             .arg("-i")
-            .env("TERMLAB_SOCKET", socket)
-            .env("TERMLAB_SESSION", id.to_string())
+            .env("KITTYPLEX_SOCKET", socket)
+            .env("KITTYPLEX_SESSION", id.to_string())
             .stdin(Stdio::from(slave.try_clone()?))
             .stdout(Stdio::from(slave.try_clone()?))
             .stderr(Stdio::from(slave));

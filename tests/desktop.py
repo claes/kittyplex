@@ -19,8 +19,8 @@ from integration import KittySSHCase, ROOT, BINARY
 class DesktopTests(KittySSHCase):
     def action(self, mode, *args):
         old = {w['id'] for w in self.windows()}
-        self.rpc('kitten', dict(match=f'id:{self.first}', kitten=str(ROOT/'kitty/termlab_launch.py'), args=[mode,*args]))
-        return self.wait_for(lambda: next((w for w in self.windows() if w['id'] not in old and 'termlab_launch_origin' in w.get('user_vars',{})),None))['id']
+        self.rpc('kitten', dict(match=f'id:{self.first}', kitten=str(ROOT/'kitty/kittyplex_launch.py'), args=[mode,*args]))
+        return self.wait_for(lambda: next((w for w in self.windows() if w['id'] not in old and 'kittyplex_launch_origin' in w.get('user_vars',{})),None))['id']
 
     def launched_view(self, mode, *args):
         old = {w['id'] for w in self.views()}
@@ -43,7 +43,7 @@ class DesktopTests(KittySSHCase):
 
     def test_probe_is_read_only_and_restores_shell(self):
         before={w['id'] for w in self.windows()}
-        text=self.command(self.first,'termlab doctor')
+        text=self.command(self.first,'kittyplex doctor')
         self.assertIn('desktop API 1',text)
         self.assertEqual({w['id'] for w in self.windows()},before)
         self.assertIn('AFTER_PROBE',self.command(self.first,"printf 'AFTER_%s\\n' PROBE"))
@@ -52,8 +52,8 @@ class DesktopTests(KittySSHCase):
         carrier,view=self.launched_view('start')
         first=next(w for w in self.views() if w['id']==self.first)
         new=next(w for w in self.views() if w['id']==view)
-        self.assertNotEqual(first['user_vars']['termlab_group'],new['user_vars']['termlab_group'])
-        self.assertIn('@',new['user_vars']['termlab_context'])
+        self.assertNotEqual(first['user_vars']['kittyplex_group'],new['user_vars']['kittyplex_group'])
+        self.assertIn('@',new['user_vars']['kittyplex_context'])
         self.send(view,"printf '\\033]2;desktop-title\\007'; sleep 30\n")
         self.wait_for(lambda:'desktop-title' in next(w for w in self.views() if w['id']==view)['tab_title'])
         self.assertIn('@',next(w for w in self.views() if w['id']==view)['tab_title'])
@@ -70,7 +70,7 @@ class DesktopTests(KittySSHCase):
         self.quit_launch(carrier,view)
 
     def test_missing_remote_package_stays_readable_until_dismissed(self):
-        carrier=self.action('ssh','--remote-binary','/nonexistent/termlab',self.fixture.ssh[-1],'--',*self.ssh_options())
+        carrier=self.action('ssh','--remote-binary','/nonexistent/kittyplex',self.fixture.ssh[-1],'--',*self.ssh_options())
         self.wait_text(carrier,'launch failed',timeout=25)
         self.assertEqual(len(self.views()),1)
         self.send(carrier,'\n')
@@ -86,12 +86,12 @@ class DesktopTests(KittySSHCase):
         self.wait_for(lambda: all(w['id'] != carrier for w in self.windows()))
         self.wait_for(lambda: self.active_window_id() == self.first)
 
-    @unittest.skipUnless(os.environ.get('TERMLAB_TEST_RUN0_USER'),'real run0 runs only in the isolated NixOS VM')
+    @unittest.skipUnless(os.environ.get('KITTYPLEX_TEST_RUN0_USER'),'real run0 runs only in the isolated NixOS VM')
     def test_real_run0_identity_shell_home_and_pty_modes(self):
         # Accounts and authorization are provisioned by nix/desktop-test.nix.
         for user,mode,prompt,home,shell in [
             ('root','--pty-late','ROOT_READY>','/root','bash'),
-            (os.environ['TERMLAB_TEST_RUN0_USER'],'--pty','BOB_READY>','/home/bob','zsh'),
+            (os.environ['KITTYPLEX_TEST_RUN0_USER'],'--pty','BOB_READY>','/home/bob','zsh'),
             ('carol','--pty-late','CAROL_READY>','/home/carol','fish'),
         ]:
             args=['--no-ask-password',mode]
@@ -101,18 +101,18 @@ class DesktopTests(KittySSHCase):
             text=self.command(view,"printf 'IDENT_%s_%s_%s\\n' \"$USER\" \"$HOME\" \"$SHELL\"")
             self.assertIn('IDENT_'+user+'_'+home+'_',text)
             self.assertIn(shell,text)
-            actual=self.command(view,'printf "OWNER_%s_%s\\n" "$(id -un)" "$(stat -c %U "$TERMLAB_SOCKET")"')
+            actual=self.command(view,'printf "OWNER_%s_%s\\n" "$(id -un)" "$(stat -c %U "$KITTYPLEX_SOCKET")"')
             self.assertIn("OWNER_"+user+"_"+user,actual)
-            context=next(w for w in self.views() if w['id']==view)['user_vars']['termlab_context']
+            context=next(w for w in self.views() if w['id']==view)['user_vars']['kittyplex_context']
             self.assertTrue(context.startswith(user+'@'),context)
             for w in self.views():
                 status=Path('/proc/'+str(w['pid'])+'/status').read_text()
                 self.assertEqual(int(next(line for line in status.splitlines() if line.startswith('Uid:')).split()[1]),os.getuid())
             self.quit_launch(carrier,view)
 
-    @unittest.skipUnless(os.environ.get('TERMLAB_TEST_RUN0_USER'),'real run0 runs only in the isolated NixOS VM')
+    @unittest.skipUnless(os.environ.get('KITTYPLEX_TEST_RUN0_USER'),'real run0 runs only in the isolated NixOS VM')
     def test_run0_explicit_group_directory_and_job_control(self):
-        carrier,view=self.launched_view('run0','-u',os.environ['TERMLAB_TEST_RUN0_USER'],'-g','users','-D','/tmp','--pty','--no-ask-password')
+        carrier,view=self.launched_view('run0','-u',os.environ['KITTYPLEX_TEST_RUN0_USER'],'-g','users','-D','/tmp','--pty','--no-ask-password')
         self.wait_text(view,'BOB_READY>')
         text=self.command(view,'printf "LOCATION_%s_%s\\n" "$PWD" "$(id -gn)"')
         self.assertIn('LOCATION_/tmp_users',text)

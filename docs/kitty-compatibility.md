@@ -1,18 +1,18 @@
 # Kitty compatibility: carrier v2
 
 This document owns feature coverage, validation evidence and host/policy limits.
-For the process and communication model, read [How termlab works](how-it-works.md);
+For the process and communication model, read [How kittyplex works](how-it-works.md);
 for exact wire rules, use the [carrier reference](original-terminal-carrier.md).
 
 ## Geometry fix and upgrade requirements
 
-`kitten icat` first needs the PTY's pixel dimensions. Earlier termlab releases
+`kitten icat` first needs the PTY's pixel dimensions. Earlier kittyplex releases
 copied rows and columns but set the two pixel fields to zero, producing the
 reported “Terminal does not support reporting screen sizes in pixels” error.
 Version 0.3 preserves pixel dimensions; the geometry cases below check this
 against each view's actual PTY. No `icat` override is needed when Kitty reports
 valid sizes. Exact fields, unknown-size semantics and resize handling belong to
-the [geometry contract](original-terminal-carrier.md#protocol-v2-termlab-03).
+the [geometry contract](original-terminal-carrier.md#protocol-v2-kittyplex-03).
 Use the [README upgrade procedure](../README.md#upgrading-an-existing-installation)
 when replacing an older installation.
 
@@ -26,7 +26,7 @@ screen state, graphics storage and placements, not physical monitor output.
 
 | Feature | Automated evidence | Remaining interactive check / qualification |
 | --- | --- | --- |
-| Native tabs | Separate tab per session; native and termlab navigation, creation-order numbering, title updates, tab closure and group cleanup | Tab-bar appearance and mouse clicks follow your Kitty settings |
+| Native tabs | Separate tab per session; native and kittyplex navigation, creation-order numbering, title updates, tab closure and group cleanup | Tab-bar appearance and mouse clicks follow your Kitty settings |
 | PTY geometry | All four fields match the corresponding local PTY; visible/hidden views resize; font and pixel-only changes propagate | Repeat on the real remote machine and desktop |
 | Default `kitten icat image.png` | Exact command, stdout attached to terminal, image stored in native graphics manager; ordinary SSH baseline | Localhost shares filesystems; genuinely separate-host auto-detection is a separate check below |
 | Streamed graphics | PNG larger than the 256 KiB credit window; native image dimensions checked | Large images remain subject to carrier bandwidth/latency |
@@ -35,14 +35,14 @@ screen state, graphics storage and placements, not physical monitor output.
 | Alternate screen | Transfer in alternate screen and native exit from alternate-screen mode | Visually inspect application-specific teardown |
 | Animation | Two-frame GIF accepted and extra frame stored by native graphics manager | Timing, smoothness and final appearance require visual inspection |
 | Unicode placeholders | Explicit streamed placeholder mode; image and placeholder character reach native Kitty | Visually inspect placeholder positioning, wrapping and scrolling |
-| Terminal queries | Cursor position, device attributes, text-area/cell pixels and color replies over direct SSH and termlab | Not an exhaustive query-protocol conformance suite |
+| Terminal queries | Cursor position, device attributes, text-area/cell pixels and color replies over direct SSH and kittyplex | Not an exhaustive query-protocol conformance suite |
 | Keyboard | Kitty keyboard protocol Ctrl-A and application-cursor Up arrive in raw remote input; prefix mappings tested separately | Physical Ctrl-Shift-M and literal-prefix action on your desktop |
 | Paste | Native bracketed-paste delimiters arrive at remote reader in both paths | OS clipboard paste with your application |
 | Focus and mouse | Focus-in/out bytes return to managed PTY; native mouse modes enabled/reset | Actual mouse coordinates, buttons, drag, wheel and selection |
 | Colors | True-color SGR survives native ANSI screen extraction | Visual color profile and font rendering |
-| Title / metadata | Native title, OSC 7 cwd, OSC 133 prompt marker and application user variable observed | Automatic shell integration requires remote shell setup; reserved `termlab_*` variables belong to termlab |
+| Title / metadata | Native title, OSC 7 cwd, OSC 133 prompt marker and application user variable observed | Automatic shell integration requires remote shell setup; reserved `kittyplex_*` variables belong to kittyplex |
 | OSC 8 hyperlinks | Native ANSI extraction retains OSC 8 URL and labeled text | Clicking and external URL/file handling require desktop checks |
-| OSC 52 clipboard | Writes and explicitly permitted reads work in direct SSH and termlab; denied reads do not expose the private token | User Kitty clipboard policy remains authoritative; no permission is granted by termlab |
+| OSC 52 clipboard | Writes and explicitly permitted reads work in direct SSH and kittyplex; denied reads do not expose the private token | User Kitty clipboard policy remains authoritative; no permission is granted by kittyplex |
 | OSC 99 notifications | Capability query receives native Kitty reply | Actual desktop delivery/buttons require a notification service and manual check |
 | Job control, recovery, parser boundaries | Existing integration suite covers signals, alternate screen/Vim, fragmented UTF-8/control sequences, hidden output, independent groups and carrier/broker failure | Persistent reattachment is not implemented |
 
@@ -93,11 +93,11 @@ above are a historical validation record, not counts for the later desktop tests
 
 Graphics file and shared-memory transfers refer to resources accessible to the
 **local Kitty process**. A path existing only on the server is not made local by
-termlab. Use `kitten icat --transfer-mode=stream image.png` for a deterministic
+kittyplex. Use `kitten icat --transfer-mode=stream image.png` for a deterministic
 remote transport. Default `icat` can probe transfer methods and fall back, but
 localhost success alone cannot establish that behavior for a separate server.
 Applications that insist on local file/shared-memory access need their own stream
-option; termlab does not provide a filesystem bridge.
+option; kittyplex does not provide a filesystem bridge.
 
 Kitty sees a local relay process as the window's direct child. Forwarding OSC 7
 and shell markers does not teach Kitty that child is an SSH process or install
@@ -108,7 +108,7 @@ native `kitten ssh` window. Interactive UI kittens are likewise workflow-specifi
 
 Clipboard access, notification delivery, hyperlink opening and shell integration
 retain their normal Kitty/desktop requirements. Some resources, such as the OS
-clipboard, are naturally shared by Kitty windows. Termlab does not virtualize
+clipboard, are naturally shared by Kitty windows. Kittyplex does not virtualize
 those resources or relax permissions. Generic remote control remains restricted
 by the existing scoped authorization callback.
 
@@ -118,7 +118,7 @@ Use the [README verification commands](../README.md#automated-verification) for
 the complete suite and its delayed-transport mode, or run just this audit:
 
 ```sh
-nix develop --command env TERMLAB_TEST_RTT_MS=100 python3 tests/compatibility.py
+nix develop --command env KITTYPLEX_TEST_RTT_MS=100 python3 tests/compatibility.py
 ```
 
 The [guided graphics demo](../README.md#kitty-features-and-graphics) supplies

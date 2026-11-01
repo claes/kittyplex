@@ -103,7 +103,7 @@ pub fn remote_command(
     Ok(frame)
 }
 pub fn carrier(message: &Message) -> io::Result<Vec<u8>> {
-    let mut frame = b"\x1bP@termlab:".to_vec();
+    let mut frame = b"\x1bP@kittyplex:".to_vec();
     frame.extend(message.bytes()?);
     frame.extend(b"\x1b\\");
     Ok(frame)
@@ -128,7 +128,7 @@ impl Decoder {
                 .position(|s| s == b"\x1bP")
                 .ok_or_else(|| crate::invalid("invalid carrier framing"))?;
             let body = &frame[start + 2..end];
-            if let Some(json) = body.strip_prefix(b"@termlab:") {
+            if let Some(json) = body.strip_prefix(b"@kittyplex:") {
                 result.push((false, json.to_vec()));
             } else if let Some(json) = body.strip_prefix(b"@kitty-cmd") {
                 result.push((true, json.to_vec()));
@@ -235,6 +235,21 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn renamed_carrier_namespace_rejects_legacy_frames() {
+        let message = Message::new(G, "heartbeat", 0);
+        let frame = carrier(&message).unwrap();
+        assert!(frame.starts_with(b"\x1bP@kittyplex:"));
+        let legacy = [
+            b"\x1bP@termlab:".as_slice(),
+            &message.bytes().unwrap(),
+            b"\x1b\\",
+        ]
+        .concat();
+        assert!(Decoder::default().push(&legacy).is_err());
+        assert_eq!(Decoder::default().push(&frame).unwrap().len(), 1);
+    }
+
     #[test]
     fn rejects_oversized_and_incompatible_frames() {
         assert!(Decoder::default().push(&vec![b'x'; FRAME * 2 + 1]).is_err());

@@ -10,15 +10,15 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 pub const HELP: &str = "Desktop launchers:
-  termlab start [--login] [--cwd DIRECTORY]
-  termlab run0 [-u USER|--user USER] [-g GROUP|--group GROUP]
+  kittyplex start [--login] [--cwd DIRECTORY]
+  kittyplex run0 [-u USER|--user USER] [-g GROUP|--group GROUP]
                [-D DIRECTORY|--chdir DIRECTORY|--cwd DIRECTORY]
                [--pty|--pty-late] [--no-ask-password]
-  termlab ssh [--remote-binary PATH] [--cwd DIRECTORY] DESTINATION [-- SSH_OPTIONS...]
-  termlab doctor
+  kittyplex ssh [--remote-binary PATH] [--cwd DIRECTORY] DESTINATION [-- SSH_OPTIONS...]
+  kittyplex doctor
 
 run0 defaults to root, target home/login environment and --pty-late (systemd >=258).
-SSH targets need termlab >=0.4 installed on PATH, or --remote-binary PATH.
+SSH targets need kittyplex >=0.4 installed on PATH, or --remote-binary PATH.
 Quit finishes the launch. Use Kitty actions to open independent groups from a
 managed view. See docs/integration-instructions.md.
 ";
@@ -80,7 +80,7 @@ pub fn run0_args(args: &[String], executable: &Path) -> io::Result<Vec<String>> 
                 "--no-ask-password" => no_ask = true,
                 other => {
                     return Err(crate::invalid(&format!(
-                        "unsupported run0 option: {other}; see termlab run0 --help"
+                        "unsupported run0 option: {other}; see kittyplex run0 --help"
                     )));
                 }
             }
@@ -112,7 +112,7 @@ pub fn run0_args(args: &[String], executable: &Path) -> io::Result<Vec<String>> 
 }
 
 pub fn ssh_args(args: &[String]) -> io::Result<Vec<String>> {
-    let (mut binary, mut cwd, mut destination) = ("termlab".to_string(), "~".to_string(), None);
+    let (mut binary, mut cwd, mut destination) = ("kittyplex".to_string(), "~".to_string(), None);
     let mut i = 0;
     while i < args.len() && args[i] != "--" {
         if let Some(v) = value(args, &mut i, &["--remote-binary"])? {
@@ -194,7 +194,7 @@ fn validate_ssh_options(args: &[String]) -> io::Result<()> {
                 .contains(&key.as_str())
                 {
                     return Err(crate::invalid(
-                        "SSH option conflicts with the termlab foreground carrier",
+                        "SSH option conflicts with the kittyplex foreground carrier",
                     ));
                 }
             }
@@ -209,9 +209,9 @@ fn validate_ssh_options(args: &[String]) -> io::Result<()> {
 }
 
 pub fn not_nested() -> io::Result<()> {
-    if std::env::var_os("TERMLAB_SOCKET").is_some() {
+    if std::env::var_os("KITTYPLEX_SOCKET").is_some() {
         return Err(crate::invalid(
-            "nested CLI launch is not supported; use a Kitty termlab-local/run0/ssh action for an independent group",
+            "nested CLI launch is not supported; use a Kitty kittyplex-local/run0/ssh action for an independent group",
         ));
     }
     Ok(())
@@ -311,7 +311,7 @@ pub fn start(args: &[String], after_login: bool) -> io::Result<()> {
     // Single-threaded initialization, before any subprocess or event loop starts.
     unsafe {
         std::env::set_var("SHELL", &user.shell);
-        std::env::set_var("TERMLAB_CONTEXT", format!("{}@{}", user.name, host));
+        std::env::set_var("KITTYPLEX_CONTEXT", format!("{}@{}", user.name, host));
     }
     crate::remote::run(Duration::from_secs(30))
 }
@@ -324,7 +324,7 @@ pub fn probe() -> io::Result<serde_json::Value> {
     let nonce: String = random.iter().map(|n| format!("{n:02x}")).collect();
     let frame = p::remote_command(
         "kitten",
-        serde_json::json!({"kitten":"termlab.py","args":["probe",nonce]}),
+        serde_json::json!({"kitten":"kittyplex.py","args":["probe",nonce]}),
         true,
     )?;
     tty.write_all(&frame)?;
@@ -485,13 +485,13 @@ pub fn tab(args: &[String]) -> io::Result<()> {
     let status = child
         .arg(mode)
         .args(rest)
-        .env_remove("TERMLAB_SOCKET")
-        .env_remove("TERMLAB_SESSION")
-        .env_remove("TERMLAB_CONTEXT")
+        .env_remove("KITTYPLEX_SOCKET")
+        .env_remove("KITTYPLEX_SESSION")
+        .env_remove("KITTYPLEX_CONTEXT")
         .status()?;
     if !status.success() {
         eprintln!(
-            "termlab: launch failed ({}). Targets require termlab >=0.4; see integration-instructions.md. Press Enter to close.",
+            "kittyplex: launch failed ({}). Targets require kittyplex >=0.4; see integration-instructions.md. Press Enter to close.",
             status.code().map_or_else(
                 || format!("signal {}", status.signal().unwrap_or(0)),
                 |n| n.to_string()
@@ -512,7 +512,7 @@ mod tests {
     }
     #[test]
     fn run0_short_long_and_pty_modes() {
-        let exe = Path::new("/nix/store/example/bin/termlab");
+        let exe = Path::new("/nix/store/example/bin/kittyplex");
         let short =
             run0_args(&a(&["-ubob", "-g", "work", "-D", "/tmp/a b", "--pty"]), exe).unwrap();
         let long = run0_args(

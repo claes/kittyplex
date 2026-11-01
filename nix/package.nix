@@ -1,6 +1,6 @@
 { lib, rustPlatform }:
 rustPlatform.buildRustPackage {
-  pname = "termlab";
+  pname = "kittyplex";
   version = "0.4.0";
   src = lib.cleanSourceWith {
     src = ../.;
@@ -10,12 +10,12 @@ rustPlatform.buildRustPackage {
   };
   cargoLock.lockFile = ../Cargo.lock;
   postInstall = ''
-    mkdir -p $out/share/termlab
-    cp -r kitty scripts $out/share/termlab/
-    substituteInPlace $out/share/termlab/kitty/termlab.py \
-      --replace-fail 'PACKAGED_BINARY = None' "PACKAGED_BINARY = '$out/bin/termlab'"
+    mkdir -p $out/share/kittyplex
+    cp -r kitty scripts $out/share/kittyplex/
+    substituteInPlace $out/share/kittyplex/kitty/kittyplex.py \
+      --replace-fail 'PACKAGED_BINARY = None' "PACKAGED_BINARY = '$out/bin/kittyplex'"
   '';
   # PTY tests need /dev/ptmx; run explicitly in the dev shell instead.
   doCheck = false;
-  meta = { description = "Remote PTYs with Kitty-owned screens"; license = lib.licenses.mit; platforms = lib.platforms.linux; mainProgram = "termlab"; };
+  meta = { description = "Remote PTYs with Kitty-owned screens"; license = lib.licenses.mit; platforms = lib.platforms.linux; mainProgram = "kittyplex"; };
 }

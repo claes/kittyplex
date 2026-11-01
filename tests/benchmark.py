@@ -70,9 +70,9 @@ class Benchmark(CarrierTests):
         carrier_throughput = self.throughput(active)
         result = dict(recorded_at=datetime.now(timezone.utc).isoformat(),
                       kitty_version=subprocess.check_output(["kitty", "--version"],text=True).strip(),
-                      termlab_version=subprocess.check_output([self.fixture.binary,"--version"],text=True).strip(),
+                      kittyplex_version=subprocess.check_output([self.fixture.binary,"--version"],text=True).strip(),
                       network=("real localhost SSH with test-only delayed stdio transport" if self.fixture.rtt_ms else "real localhost SSH, no artificial delay"),
-                      injected_rtt_ms=float(os.environ.get("TERMLAB_TEST_RTT_MS", "0")),
+                      injected_rtt_ms=float(os.environ.get("KITTYPLEX_TEST_RTT_MS", "0")),
                       polling_resolution_ms=20, sessions=8, direct=direct, loaded=loaded,
                       additional_p95_ms=loaded["p95_ms"] - direct["p95_ms"],
                       direct_bytes_per_second=direct_throughput,
@@ -92,7 +92,7 @@ if __name__ == "__main__":
         parser.error("at least 20 samples are required")
     if not CAN_BIND:
         parser.exit(2, "Benchmark NOT RUN: environment denies socket binding.\n")
-    os.environ["TERMLAB_TEST_RTT_MS"] = str(args.rtt_ms)
+    os.environ["KITTYPLEX_TEST_RTT_MS"] = str(args.rtt_ms)
     Benchmark.output = args.output
     Benchmark.samples = args.samples
     result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite([Benchmark("runTest")]))

@@ -108,14 +108,14 @@ impl Remote {
     fn rpc(&self, m: &Message) -> io::Result<Vec<u8>> {
         p::remote_command(
             "kitten",
-            serde_json::json!({"kitten":"termlab.py","args":["carrier",String::from_utf8(m.bytes()?).unwrap()]}),
+            serde_json::json!({"kitten":"kittyplex.py","args":["carrier",String::from_utf8(m.bytes()?).unwrap()]}),
             m.kind != "abort",
         )
     }
     fn event_loop(&mut self) -> io::Result<()> {
         let mut bootstrap = Message::new(&self.group, "bootstrap", 0);
         bootstrap.n = self.timeout.as_secs() as usize;
-        bootstrap.data = std::env::var("TERMLAB_CONTEXT").unwrap_or_default();
+        bootstrap.data = std::env::var("KITTYPLEX_CONTEXT").unwrap_or_default();
         self.messages.push_back(bootstrap);
         loop {
             if Signals::terminating() && !self.closing {
@@ -140,7 +140,7 @@ impl Remote {
                     if self.ready {
                         "carrier heartbeat lost; group closed"
                     } else {
-                        "kitty integration did not become ready; install termlab.py and scoped authorization locally (see README)"
+                        "kitty integration did not become ready; install kittyplex.py and scoped authorization locally (see README)"
                     },
                 ));
             }

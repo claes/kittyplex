@@ -1,5 +1,5 @@
 #[cfg(not(target_os = "linux"))]
-compile_error!("termlab currently supports Linux only");
+compile_error!("kittyplex currently supports Linux only");
 mod broker;
 mod control;
 mod launch;
@@ -13,14 +13,14 @@ use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::time::Duration;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
-const HELP: &str = "termlab — remote PTYs with kitty-owned terminal screens
+const HELP: &str = "kittyplex — remote PTYs with kitty-owned terminal screens
 
 Usage:
-  termlab [--heartbeat-timeout SECONDS]
-  termlab ctl [--socket PATH] new|next|previous|select N|status|quit
-  termlab start|run0|ssh|doctor [--help]
+  kittyplex [--heartbeat-timeout SECONDS]
+  kittyplex ctl [--socket PATH] new|next|previous|select N|status|quit
+  kittyplex start|run0|ssh|doctor [--help]
 
-Install the local kitty integration before starting termlab, locally or over
+Install the local kitty integration before starting kittyplex, locally or over
 ordinary SSH. Ctrl-Shift-M then c/n/p/1–9/q creates, selects, or closes sessions.
 Press the prefix twice to send it literally. No application bytes are reserved.
 Connection loss closes the group. No detach/reattach or terminal emulation.
@@ -30,7 +30,7 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("termlab: {e}");
+            eprintln!("kittyplex: {e}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -43,7 +43,7 @@ fn run() -> io::Result<()> {
             Ok(())
         }
         Some("--version" | "-V") => {
-            println!("termlab {}", env!("CARGO_PKG_VERSION"));
+            println!("kittyplex {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Some("ctl") => control::client(&args[1..]),
@@ -54,8 +54,8 @@ fn run() -> io::Result<()> {
         Some("__broker") => broker::run(&args[1..]),
         Some("__view") => view::run(&args[1..]),
         None | Some("--heartbeat-timeout") => {
-            if std::env::var_os("TERMLAB_SOCKET").is_some() {
-                return Err(invalid("nested termlab is not supported"));
+            if std::env::var_os("KITTYPLEX_SOCKET").is_some() {
+                return Err(invalid("nested kittyplex is not supported"));
             }
             let timeout = if args.is_empty() {
                 30

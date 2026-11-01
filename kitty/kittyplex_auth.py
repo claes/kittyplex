@@ -1,8 +1,8 @@
-"""Authorize scoped termlab carrier and read-only probe calls from their source TTY."""
+"""Authorize scoped kittyplex carrier and read-only probe calls from their source TTY."""
 import os
 import runpy
 
-_adapter = runpy.run_path(os.path.join(os.path.dirname(__file__), "termlab.py"))
+_adapter = runpy.run_path(os.path.join(os.path.dirname(__file__), "kittyplex.py"))
 
 
 def is_cmd_allowed(pcmd, window, from_socket, extra_data):
@@ -13,7 +13,7 @@ def is_cmd_allowed(pcmd, window, from_socket, extra_data):
     if pcmd.get("cmd") != "kitten" or type(pcmd.get("no_response")) is not bool:
         return False
     payload = pcmd.get("payload", {})
-    if set(payload) != {"kitten", "args"} or payload.get("kitten") != "termlab.py":
+    if set(payload) != {"kitten", "args"} or payload.get("kitten") != "kittyplex.py":
         return False
     args = payload.get("args")
     if not isinstance(args, list) or len(args) != 2:
@@ -26,7 +26,7 @@ def is_cmd_allowed(pcmd, window, from_socket, extra_data):
         m = _adapter["validate"](args[1])
         if pcmd["no_response"] != (m["kind"] == "abort"):
             return False
-        group = window.user_vars.get("termlab_group")
+        group = window.user_vars.get("kittyplex_group")
         return group == m["g"] or (not group and m["kind"] == "bootstrap" and m["seq"] == 1)
     except (ValueError, TypeError, KeyError):
         return False

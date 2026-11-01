@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare real Kitty behavior over ordinary SSH with termlab's session views."""
+"""Compare real Kitty behavior over ordinary SSH with kittyplex's session views."""
 import base64
 import json
 import os
@@ -74,7 +74,7 @@ Path({str(result)!r}).write_text(data.hex())
 
     def test_feature_demo_command(self):
         before = self.probe(self.first, "graphics")["count"]
-        self.run_command(self.first, "termlab-features")
+        self.run_command(self.first, "kittyplex-features")
         self.wait_for(lambda: self.probe(self.first, "graphics")["count"] > before)
 
     def test_full_geometry_and_icat_default(self):
@@ -131,7 +131,7 @@ Path({str(result)!r}).write_text(data.hex())
         second=self.create(self.first)
         # A missing local file emulates the negative probe needed for stream
         # fallback. It does not pretend localhost has a separate filesystem.
-        missing='/nonexistent/termlab-graphics-'+secrets.token_hex(8)
+        missing='/nonexistent/kittyplex-graphics-'+secrets.token_hex(8)
         command=b'\x1b_Ga=q,t=f,f=100,i=123;' + base64.b64encode(missing.encode()) + b'\x1b\\'
         reply=self.query(self.first,command,b'\x1b\\')
         self.assertIn(b'i=123;',reply)
@@ -211,7 +211,7 @@ Path({str(result)!r}).write_text(data.hex())
         if not self.xvfb:
             self.skipTest('clipboard audit requires the isolated Xvfb display')
         for window in (self.direct(),self.first):
-            token='termlab-clipboard-'+secrets.token_hex(8)
+            token='kittyplex-clipboard-'+secrets.token_hex(8)
             sequence=b'\x1b]52;c;'+base64.b64encode(token.encode())+b'\x07'
             self.python(window,f'import os; os.write(1,{sequence!r})')
             self.wait_for(lambda:self.probe(window,'clipboard')==token)

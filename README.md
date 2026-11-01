@@ -1,16 +1,16 @@
-# termlab
+# kittyplex
 
 Remote PTY sessions with independent kitty-owned screens. Log in with ordinary
-SSH, run `termlab`, and create or switch sessions with **Ctrl-Shift-M**. The remote
+SSH, run `kittyplex`, and create or switch sessions with **Ctrl-Shift-M**. The remote
 Rust process owns the applications and PTYs; local kitty retains each session's
-screen, scrollback, cursor, parser, and terminal modes. Termlab transports bytes
+screen, scrollback, cursor, parser, and terminal modes. Kittyplex transports bytes
 without implementing a terminal emulator.
 
 This is an experimental implementation of **approach 1, original terminal
 carrier**. The real SSH/kitty acceptance suite now runs on an isolated virtual
 display, including a test transport with 100 ms of added round-trip latency.
 Use the demo below to check the interactive outcome on your desktop.
-Read [How termlab works](docs/how-it-works.md) for a diagram-led explanation of
+Read [How kittyplex works](docs/how-it-works.md) for a diagram-led explanation of
 the processes, PTYs, and communication paths, starting with the basics. The
 [carrier reference](docs/original-terminal-carrier.md) specifies the protocol and
 failure contracts; the [compatibility reference](docs/kitty-compatibility.md)
@@ -29,7 +29,7 @@ nix run path:.#demo
 ```
 
 The first run builds/downloads dependencies. A separate kitty process opens,
-connects to a temporary localhost SSH server, and starts termlab. No existing
+connects to a temporary localhost SSH server, and starts kittyplex. No existing
 kitty/SSH configuration, authorized keys, known hosts, or system service is changed.
 No root access is needed. The fixture uses real SSH on one machine; it does not
 simulate network delay or establish performance on a distant server.
@@ -46,7 +46,7 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
 1. In the initial session, run:
 
    ```sh
-   echo "session=$TERMLAB_SESSION"; tty
+   echo "session=$KITTYPLEX_SESSION"; tty
    printf 'This is the first screen\n'
    ```
 
@@ -55,7 +55,7 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
    using the tab bar or Kitty’s native tab navigation, then use
    **Ctrl-Shift-M, 1** and verify that the first screen is still present.
 
-3. Run `vim -Nu NONE -i NONE /tmp/termlab-demo-note` in the first session. Type
+3. Run `vim -Nu NONE -i NONE /tmp/kittyplex-demo-note` in the first session. Type
    `i`, enter a few lines, then Escape. Switch to session 2 and back using
    **Ctrl-Shift-M, n/p** or **1/2**. Vim's contents and cursor should persist.
    Exit Vim with `:q!` followed by Enter.
@@ -84,7 +84,7 @@ Press **Ctrl-Shift-M**, release both keys, then press the action key.
 ```sh
 ./scripts/demo.sh --features
 # In a managed session:
-termlab-features
+kittyplex-features
 ```
 
 This generates temporary PNG/GIF assets and prints commands for checking images,
@@ -99,7 +99,7 @@ coverage, manual checks, and remote filesystem and desktop integration limits.
 
 For NixOS flake imports, Home Manager, existing Kitty configuration and automatic
 `run0`/SSH launchers, follow the [integration instructions](docs/integration-instructions.md).
-Try `termlab run0 -u bob --pty` or `termlab ssh user@server` after installation.
+Try `kittyplex run0 -u bob --pty` or `kittyplex ssh user@server` after installation.
 
 ## Install for a real remote server
 
@@ -113,7 +113,7 @@ cargo build --release --locked
 nix build path:.
 ```
 
-Install `termlab` on PATH **locally and remotely**, using the matching source
+Install `kittyplex` on PATH **locally and remotely**, using the matching source
 version. The local binary runs only the broker and view relays. Each machine can
 build for its own architecture; no Nix installation is required on the server if
 you install a compatible binary there.
@@ -123,12 +123,12 @@ Copy **all five integration files** into your local kitty configuration director
 
 ```sh
 mkdir -p ~/.config/kitty
-cp kitty/termlab.conf kitty/termlab*.py ~/.config/kitty/
-# With the Nix package, use result/share/termlab/kitty/ instead of kitty/.
+cp kitty/kittyplex.conf kitty/kittyplex*.py ~/.config/kitty/
+# With the Nix package, use result/share/kittyplex/kitty/ instead of kitty/.
 ```
 
-Add `include termlab.conf` to `kitty.conf`, then start a fresh kitty process that
-can find the local binary on PATH. Alternatively, set `TERMLAB_BINARY` to its
+Add `include kittyplex.conf` to `kitty.conf`, then start a fresh kitty process that
+can find the local binary on PATH. Alternatively, set `KITTYPLEX_BINARY` to its
 absolute local path **before starting kitty**. The included configuration enables
 password-mode remote control with a narrowly scoped authorization callback;
 it does not require a global kitty socket or unrestricted remote control.
@@ -139,7 +139,7 @@ Then use your normal login:
 
 ```sh
 ssh server
-termlab
+kittyplex
 ```
 
 No forwarding configuration, ControlMaster, public-key environment forwarding,
@@ -147,9 +147,9 @@ additional SSH connections, or kitty patches are required. The original SSH
 window remains the carrier in its original tab. Session views appear in a
 separate native Kitty tab for each session; keep the carrier window open until
 the group ends. New session tabs are appended in the carrier’s Kitty OS window.
-They start with a `termlab N` title and follow application title changes. Your
+They start with a `kittyplex N` title and follow application title changes. Your
 Kitty tab-bar settings control their appearance.
-The same integration also supports running `termlab` locally inside kitty.
+The same integration also supports running `kittyplex` locally inside kitty.
 
 ### Upgrading an existing installation
 
@@ -157,13 +157,13 @@ Use the installation steps above to update both local and remote binaries and
 all five Kitty integration files together. End existing groups and start a
 **fresh Kitty process**: reloading configuration alone can retain cached Python
 authorization code. Carrier v2 is incompatible with v1; its
-[protocol contract](docs/original-terminal-carrier.md#protocol-v2-termlab-03)
+[protocol contract](docs/original-terminal-carrier.md#protocol-v2-kittyplex-03)
 records the version requirements. Version 0.3 fixes missing PTY pixel dimensions
 that prevented ordinary `kitten icat` use.
 
 Version 0.4 keeps carrier v2 and adds desktop launch commands. Automatic target
 startup requires matching 0.4 binaries and the updated helpers. Existing bare
-`termlab` startup remains supported.
+`kittyplex` startup remains supported.
 
 ## Controls and lifecycle
 
@@ -183,11 +183,11 @@ application input. Change both `ctrl+shift+m` mappings to customize the prefix.
 Each new session starts `$SHELL -i`, falling back to `/bin/sh -i`, inheriting the
 controller's initial directory and environment. Native kitty focus changes are
 synchronized, including tab clicks and native Kitty next/previous-tab navigation.
-Termlab’s next/previous and numbered shortcuts stay within their own group and
+Kittyplex’s next/previous and numbered shortcuts stay within their own group and
 use session creation order; manually reordering tabs does not renumber sessions.
 Management commands identify their originating session.
 Closing a session tab closes its remote session; exiting the last shell ends
-the group. Quitting closes only termlab’s session views, preserving unrelated
+the group. Quitting closes only kittyplex’s session views, preserving unrelated
 tabs and ordinary windows you manually added.
 Eight simultaneous sessions are supported initially.
 
@@ -199,7 +199,7 @@ Jobs deliberately ignoring hangup can survive; SIGKILL cannot run cleanup.
 Heartbeats run every five seconds with a default thirty-second loss timeout:
 
 ```sh
-termlab --heartbeat-timeout 60
+kittyplex --heartbeat-timeout 60
 ```
 
 Application output is never discarded to implement switching. Bounded queues
@@ -212,20 +212,20 @@ add overhead; see the measured results in the carrier implementation reference.
 From a managed remote shell:
 
 ```sh
-termlab ctl new
-termlab ctl next
-termlab ctl previous
-termlab ctl select 1
-termlab ctl status
-termlab ctl quit
+kittyplex ctl new
+kittyplex ctl next
+kittyplex ctl previous
+kittyplex ctl select 1
+kittyplex ctl status
+kittyplex ctl quit
 ```
 
-`TERMLAB_SOCKET` identifies the private **remote** control socket;
-`TERMLAB_SESSION` is the stable session ID. `status` reports the selected position,
+`KITTYPLEX_SOCKET` identifies the private **remote** control socket;
+`KITTYPLEX_SESSION` is the stable session ID. `status` reports the selected position,
 ready-session count, IDs, and shell PIDs. Creating a view is asynchronous: `new`
 acknowledges the request, and the session appears in `status` once its view is
 ready. Positions shift when sessions exit. From another shell on the same server,
-use `termlab ctl --socket /path/to/control.sock status`.
+use `kittyplex ctl --socket /path/to/control.sock status`.
 
 ## Automated verification
 
@@ -247,7 +247,7 @@ For optional measurements against direct SSH, using eight sessions and hidden
 output:
 
 ```sh
-nix develop --command python3 tests/benchmark.py --rtt-ms 100 --output /tmp/termlab-benchmark.json
+nix develop --command python3 tests/benchmark.py --rtt-ms 100 --output /tmp/kittyplex-benchmark.json
 ```
 
 The benchmark records samples, p95 latency, and throughput. Add `--samples 100`
@@ -265,7 +265,7 @@ localhost case still exceeds the 100 ms additional-p95 latency target; the
 To run acceptance tests over the same delayed transport:
 
 ```sh
-nix develop --command env TERMLAB_TEST_RTT_MS=100 ./scripts/test.sh
+nix develop --command env KITTYPLEX_TEST_RTT_MS=100 ./scripts/test.sh
 ```
 
 ## Working on this project with Codex
@@ -283,7 +283,7 @@ inherits the shell environment with your existing environment filters, and
 disables login shells so command execution keeps that PATH. Your configured
 model and reasoning settings are unchanged; additional arguments go to Codex.
 
-The launcher selects a `termlab-dev` permission profile extending `:workspace`,
+The launcher selects a `kittyplex-dev` permission profile extending `:workspace`,
 keeps `on-request` approvals, and enables direct command networking with local
 binding. It disables Codex's network proxy for this invocation so tests can
 create TCP listeners and Unix sockets for SSH, kitty IPC, and Xvfb. Network access

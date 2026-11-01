@@ -62,7 +62,7 @@ Both main approaches require separating responsibilities currently combined in
 the remote controller:
 
 ```text
-Persistent remote termlab server
+Persistent remote kittyplex server
 ├── Owns application PTY masters and starts session shells
 ├── Tracks workspaces, sessions and attachment ownership
 └── Accepts temporary attachment connections over private remote IPC
@@ -75,7 +75,7 @@ On reattach: a new attachment connects to that same server and workspace.
 Applications would retain their existing PIDs and in-memory state rather than be
 restarted from saved commands. The existing single-SSH carrier can remain the
 transport: this does not inherently require another SSH connection per session,
-port forwarding, or a terminal emulator in termlab.
+port forwarding, or a terminal emulator in kittyplex.
 
 The persistent server must not depend on the attachment's terminal, standard
 streams or lifetime. Simply suppressing one hangup signal is insufficient: the
@@ -309,7 +309,7 @@ these policies by silently changing the current lifecycle.
 Useful existing code entry points are the
 [controller](../src/remote.rs), [PTY/process owner](../src/session.rs),
 [broker](../src/broker.rs), [relay](../src/view.rs), and
-[Kitty lifecycle integration](../kitty/termlab.py). The
+[Kitty lifecycle integration](../kitty/kittyplex.py). The
 [existing verification record](kitty-compatibility.md#validation-record-2026-11-01-europestockholm)
 describes current functionality only; it is not evidence that any proposed
 detach behavior works.

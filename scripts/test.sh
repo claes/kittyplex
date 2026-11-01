@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-termlab_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-cd "$termlab_root"
+kittyplex_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd "$kittyplex_root"
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked

@@ -4,7 +4,7 @@ import runpy
 from kitty.constants import config_dir
 from kittens.tui.handler import result_handler
 
-DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "termlab_launch.py")))
+DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "kittyplex_launch.py")))
 
 
 def main(args):
@@ -12,7 +12,7 @@ def main(args):
 
 
 def carrier_closed(boss, window, data):
-    source = window.user_vars.get("termlab_launch_origin")
+    source = window.user_vars.get("kittyplex_launch_origin")
     if source:
         try:
             origin = boss.window_id_map.get(int(source))
@@ -32,18 +32,18 @@ def handle_result(args, answer, target_window_id, boss):
         source = boss.window_id_map.get(target_window_id)
         if source is None:
             return
-        adapter = runpy.run_path(os.path.join(DIRECTORY, "termlab.py"))
+        adapter = runpy.run_path(os.path.join(DIRECTORY, "kittyplex.py"))
         opts, cmd = parse_launch_args([
-            "--type=tab", "--location=last", "--title=termlab carrier",
-            "--env=TERMLAB_SOCKET", "--env=TERMLAB_SESSION", "--env=TERMLAB_CONTEXT",
-            "--var=termlab_launch_origin=" + str(source.id),
+            "--type=tab", "--location=last", "--title=kittyplex carrier",
+            "--env=KITTYPLEX_SOCKET", "--env=KITTYPLEX_SESSION", "--env=KITTYPLEX_CONTEXT",
+            "--var=kittyplex_launch_origin=" + str(source.id),
             adapter["binary_path"](), "__launch-tab", *args[1:]])
         view = launch(boss, opts, cmd, target_tab=source.tabref(), rc_from_window=source)
         if view:
             view.set_title(None)
-            view.title_changed(memoryview(("termlab " + args[1]).encode()))
+            view.title_changed(memoryview(("kittyplex " + args[1]).encode()))
             watcher = Watchers()
             watcher.on_close.append(carrier_closed)
             view.watchers.add(watcher)
     except (ValueError, OSError, TypeError) as error:
-        boss.show_error("termlab launch", str(error))
+        boss.show_error("kittyplex launch", str(error))

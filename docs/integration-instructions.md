@@ -1,7 +1,7 @@
 # Desktop integration
 
-Termlab 0.4 adds launchers for local shells, SSH and switching user with run0.
-Kitty owns the screens; termlab owns the application PTYs. These launchers automate
+Kittyplex 0.4 adds launchers for local shells, SSH and switching user with run0.
+Kitty owns the screens; kittyplex owns the application PTYs. These launchers automate
 starting the existing original-terminal carrier design. They do not add another
 network service, SSH connection or terminal emulator.
 
@@ -10,43 +10,72 @@ This document owns installation and launch configuration. The
 [compatibility](kitty-compatibility.md) covers terminal features and their limits.
 Detach and reattach remain unimplemented; see [detach analysis](detach-analysis.md).
 
+## Migrating from termlab
+
+Kittyplex is the new project name. This is a clean rename, without compatibility
+aliases. Version remains 0.4.0 and the carrier envelope remains v2, but its marker
+is now `@kittyplex:`. Old and renamed components cannot be mixed.
+
+1. Quit existing groups before upgrading; sessions cannot be migrated live.
+2. Install `kittyplex` locally and on SSH targets. Replace `termlab` commands,
+   `termlab-demo` and `termlab-features` with their `kittyplex` equivalents.
+3. Change Nix flake input references and `programs.termlab` options to
+   `kittyplex` and `programs.kittyplex`; installed resources move from
+   `share/termlab` to `share/kittyplex`.
+4. Replace `TERMLAB_` environment variables with `KITTYPLEX_`, including binary
+   overrides and test settings. Old variables are no longer recognized.
+5. Replace `include termlab.conf`, old helper/action references and custom
+   bindings with the renamed configuration below. Remove the obsolete files
+   `termlab.conf`, `termlab.py`, `termlab_auth.py`, `termlab_watcher.py` and
+   `termlab_launch.py` from your Kitty config directory after installing the new
+   files. Home Manager users must remove old manually installed files themselves.
+6. Start a fresh Kitty process, run `kittyplex doctor`, and test a new group.
+   Ctrl-Shift-M retains its existing behavior.
+
+Repository examples now use `github:claes/kittyplex`. The GitHub repository rename
+must be performed separately before those URLs can fetch this version; until
+then use `path:/absolute/path/to/checkout`. The rename does not move your local
+checkout or change its Git remote. Existing benchmark JSON remains unchanged as
+historical evidence, including its `termlab_version` fields; newly generated
+results use `kittyplex_version`.
+
 ## Install with NixOS and Home Manager
 
 Use [examples/flake-with-modules.nix](../examples/flake-with-modules.nix) as a
 complete consumer flake example. Copy its inputs and modules into your existing
 `flake.nix`; retain your host's `configuration.nix`, hardware imports, users and
 existing state versions. Replace `myhost`, `alice` and the system architecture.
-The repository URL is `github:claes/termlab`. Until these changes are published,
-use `path:/absolute/path/to/termlab` instead. Git-backed local flake URLs include only tracked files; add new project files
+The repository URL is `github:claes/kittyplex`. Until these changes are published,
+use `path:/absolute/path/to/kittyplex` instead. Git-backed local flake URLs include only tracked files; add new project files
 to Git or use `path:` to include untracked files.
 
 The essential imports are:
 
 ```nix
-inputs.termlab = {
-  url = "github:claes/termlab";
+inputs.kittyplex = {
+  url = "github:claes/kittyplex";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 # In nixosSystem.modules:
-# termlab.nixosModules.default
+# kittyplex.nixosModules.default
 # home-manager.nixosModules.home-manager
 # In your host module:
-programs.termlab.enable = true;
-programs.termlab.run0.enable = true;
-home-manager.sharedModules = [ termlab.homeManagerModules.default ];
-home-manager.users.alice.programs.termlab.enable = true;
+programs.kittyplex.enable = true;
+programs.kittyplex.run0.enable = true;
+home-manager.sharedModules = [ kittyplex.homeManagerModules.default ];
+home-manager.users.alice.programs.kittyplex.enable = true;
 ```
 
 The complete example explicitly selects the same package for both modules. The
-NixOS module installs termlab and Kitty terminfo for all users, and links the
-integration under `/run/current-system/sw/share/termlab/`. Enabling `run0` enables
+NixOS module installs kittyplex and Kitty terminfo for all users, and links the
+integration under `/run/current-system/sw/share/kittyplex/`. Enabling `run0` enables
 Polkit with normal authentication policy and asserts systemd >=258. NixOS supplies
 the systemd-run0 PAM service. The module does not grant passwordless privilege
 changes. A desktop Polkit agent or run0's terminal authentication must be available.
 
-The Home Manager module installs Kitty, four Python helpers and `termlab.conf`,
+The Home Manager module installs Kitty, four Python helpers and `kittyplex.conf`,
 and adds its include to Kitty's configuration. It preserves other Kitty settings.
-Its options are `programs.termlab.enable`, `.package`, `.kitty.enable` and
+Its options are `programs.kittyplex.enable`, `.package`, `.kitty.enable` and
 `.kitty.prefix`. Set `.kitty.enable = false` to install only the package and manage
 Kitty yourself. Existing files at those managed paths must first be backed up or
 moved into your declarative configuration. Avoid duplicate includes. The module
@@ -58,14 +87,14 @@ Apply your normal configuration:
 sudo nixos-rebuild switch --flake .#myhost
 ```
 
-Start a **fresh Kitty process**, then run `termlab doctor`. Reloading configuration
+Start a **fresh Kitty process**, then run `kittyplex doctor`. Reloading configuration
 alone can keep cached Python authorization code. No daemon, user service or global
 Kitty listening socket needs to be started.
 
-For an SSH-only NixOS target, import just the NixOS module, enable termlab, and
+For an SSH-only NixOS target, import just the NixOS module, enable kittyplex, and
 leave `.run0.enable = false`. No Kitty GUI or Home Manager configuration is needed
 on that target. Other Linux targets can install a matching binary themselves and
-must have `xterm-kitty` terminfo available. Run0 executes the caller's termlab executable by its absolute path; the Nix store
+must have `xterm-kitty` terminfo available. Run0 executes the caller's kittyplex executable by its absolute path; the Nix store
 provides a path readable by the target user, without relying on that user's PATH.
 A source build under a private home directory may be inaccessible to another user.
 Target installation is a prerequisite for SSH;
@@ -74,28 +103,28 @@ launchers do not upload binaries or bootstrap Nix.
 ## Incorporate into an existing Kitty configuration, without module options
 
 [examples/flake-manual.nix](../examples/flake-manual.nix) is a complete consumer
-example with no `programs.termlab` options or termlab module imports. It installs
+example with no `programs.kittyplex` options or kittyplex module imports. It installs
 the package, Kitty, terminfo and run0's Polkit prerequisite. Merge it into your
 host flake, rebuild, then install the integration links as your desktop user:
 
 ```sh
-termlab_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
-mkdir -p "$termlab_kitty_dir"
-for file in termlab.py termlab_auth.py termlab_watcher.py termlab_launch.py termlab.conf; do
-  ln -s "/run/current-system/sw/share/termlab/kitty/$file" "$termlab_kitty_dir/$file"
+kittyplex_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
+mkdir -p "$kittyplex_kitty_dir"
+for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex.conf; do
+  ln -s "/run/current-system/sw/share/kittyplex/kitty/$file" "$kittyplex_kitty_dir/$file"
 done
 ```
 
 Back up existing files at those names first; these commands intentionally fail
 rather than overwrite them. If Kitty uses an explicit `--config` or custom
 configuration directory, install the helpers in its actual config directory.
-The bare filename `termlab.py` must resolve there: an `action_alias` cannot replace
+The bare filename `kittyplex.py` must resolve there: an `action_alias` cannot replace
 that requirement for terminal-originated requests.
 
 Add this line to your **existing** `kitty.conf`:
 
 ```conf
-include termlab.conf
+include kittyplex.conf
 ```
 
 The include contains the scoped Ctrl-Shift-M management mappings, authorization
@@ -109,22 +138,22 @@ No additional global shortcuts are installed. You can optionally add bindings to
 unused chords in your own configuration, for example:
 
 ```conf
-map ctrl+alt+f8 termlab-run0 -u bob --pty
-map ctrl+alt+f9 termlab-ssh user@server
-map ctrl+alt+f10 termlab-local
+map ctrl+alt+f8 kittyplex-run0 -u bob --pty
+map ctrl+alt+f9 kittyplex-ssh user@server
+map ctrl+alt+f10 kittyplex-local
 ```
 
 Choose chords that fit your desktop and applications. The aliases are thin
 custom kittens running inside Kitty, available only as trusted local actions.
-They open a separate carrier tab even when invoked from an existing termlab view.
+They open a separate carrier tab even when invoked from an existing kittyplex view.
 They neither wrap nor modify Kitty's bundled `kitten ssh`. You can also bind
-`kitten termlab_launch.py run0 -u bob --pty` directly.
+`kitten kittyplex_launch.py run0 -u bob --pty` directly.
 
-For a custom management prefix, copy `termlab.conf` instead of symlinking it and
+For a custom management prefix, copy `kittyplex.conf` instead of symlinking it and
 change **both** occurrences of `ctrl+shift+m` (entry and literal-prefix forwarding).
 Review the copied file when upgrading. Packaged helpers pin their local executable
 to the matching Nix store path, so Kitty need not inherit a particular shell PATH.
-`TERMLAB_BINARY`, set before Kitty starts, remains an explicit override for source
+`KITTYPLEX_BINARY`, set before Kitty starts, remains an explicit override for source
 development. End old groups, update targets and helpers together, and start fresh
 Kitty after upgrading. Carrier protocol stays v2; automatic launch requires 0.4's
 new target `start` command.
@@ -134,17 +163,17 @@ new target `start` command.
 From an ordinary shell in the configured Kitty:
 
 ```sh
-termlab doctor
-termlab start                         # Local group, current directory.
-termlab start --login                 # Account login environment and home.
-termlab run0 -u bob                   # Target home and login shell; --pty-late.
-termlab run0 --user=bob --pty          # Explicit early PTY allocation.
-termlab run0 -u bob -g work -D /srv/work --pty
-termlab run0 --user=bob --cwd='/srv/a directory' --pty-late
-termlab run0                          # Root, with normal run0 authentication.
-termlab ssh user@server
-termlab ssh --cwd=/srv/work server -- -p 2222 -J jump-host
-termlab ssh --remote-binary=/opt/termlab/bin/termlab server
+kittyplex doctor
+kittyplex start                         # Local group, current directory.
+kittyplex start --login                 # Account login environment and home.
+kittyplex run0 -u bob                   # Target home and login shell; --pty-late.
+kittyplex run0 --user=bob --pty          # Explicit early PTY allocation.
+kittyplex run0 -u bob -g work -D /srv/work --pty
+kittyplex run0 --user=bob --cwd='/srv/a directory' --pty-late
+kittyplex run0                          # Root, with normal run0 authentication.
+kittyplex ssh user@server
+kittyplex ssh --cwd=/srv/work server -- -p 2222 -J jump-host
+kittyplex ssh --remote-binary=/opt/kittyplex/bin/kittyplex server
 ```
 
 `run0` supports `-u`/`--user`, `-g`/`--group`, `-D`/`--chdir`/`--cwd`, including
@@ -191,11 +220,11 @@ There is no detach or reconnect after connection loss.
 ```text
 Desktop UID (alice)                       Target UID (bob)
 Kitty + trusted action                   systemd service started by run0
-  carrier: termlab __launch-tab             target login shell
-             -> termlab run0                  -> termlab controller
+  carrier: kittyplex __launch-tab             target login shell
+             -> kittyplex run0                  -> kittyplex controller
                   -> run0 <--- PTY bytes --->      -> PTY -> bob's shell/apps
-  termlab __broker
-  termlab __view -> Kitty session screen
+  kittyplex __broker
+  kittyplex __view -> Kitty session screen
 ```
 
 Run0 asks systemd/Polkit to authorize a new service under the requested user.
@@ -222,13 +251,13 @@ No shell startup hooks, SSH aliases or custom Kitty build are required.
 
 ## Troubleshooting and verification
 
-- `termlab doctor` checks the Kitty callback, selected local binary, run0 version
+- `kittyplex doctor` checks the Kitty callback, selected local binary, run0 version
   and SSH availability. Run it inside Kitty; it needs a real terminal. It does
   not change user, connect to a server or start a group.
 - No compatible Kitty response: check the include, helper directory, password
   mode and executable override; start a fresh Kitty process. Generic terminal
-  multiplexers between Kitty and termlab can intercept terminal control traffic.
-- Target reports unknown `start` command or command not found: install termlab
+  multiplexers between Kitty and kittyplex can intercept terminal control traffic.
+- Target reports unknown `start` command or command not found: install kittyplex
   >=0.4 on that target's SSH command PATH, or supply SSH `--remote-binary`.
   SSH command PATH can differ from an interactive login PATH; the launcher must
   find the executable before it can initialize the target login environment.

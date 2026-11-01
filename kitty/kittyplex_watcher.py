@@ -4,9 +4,9 @@ import socket
 
 
 def emit(window, kind):
-    endpoint = window.user_vars.get("termlab_socket")
-    group = window.user_vars.get("termlab_group")
-    session = window.user_vars.get("termlab_session")
+    endpoint = window.user_vars.get("kittyplex_socket")
+    group = window.user_vars.get("kittyplex_group")
+    session = window.user_vars.get("kittyplex_session")
     if not endpoint or not group or not session:
         return
     message = dict(v=2, g=group, seq=0, kind=kind, id=int(session),
@@ -31,7 +31,7 @@ def on_close(boss, window, data):
 
 
 def on_title_change(boss, window, data):
-    context = window.user_vars.get("termlab_context")
+    context = window.user_vars.get("kittyplex_context")
     if isinstance(context, bytes):
         context = context.decode("utf-8", "replace")
     if context and (tab := window.tabref()) is not None:

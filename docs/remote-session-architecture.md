@@ -2,7 +2,7 @@
 
 Status: historical requirements and design analysis. Approach 1 with the original
 terminal carrier was subsequently selected and implemented; approach 2 remains
-unimplemented. Read [How termlab works](how-it-works.md) for the running system,
+unimplemented. Read [How kittyplex works](how-it-works.md) for the running system,
 the [carrier reference](original-terminal-carrier.md) for its current contracts,
 and [compatibility](kitty-compatibility.md) for validation evidence.
 
@@ -18,30 +18,30 @@ local Kitty window should start an independent remote login shell.
 ## 1. Goal and ownership model
 
 The user opens kitty on their computer, logs into a server with SSH, starts
-`termlab` there, creates additional sessions, and switches between them:
+`kittyplex` there, creates additional sessions, and switches between them:
 
 ```sh
 ssh server
-termlab
+kittyplex
 # Create sessions and switch using Ctrl-Shift-M commands.
 ```
 
-Remote termlab owns the application processes and their PTYs. Local kitty owns
+Remote kittyplex owns the application processes and their PTYs. Local kitty owns
 the terminal emulation and keeps a separate, continuously maintained terminal
 state for every session. A session switch changes which state is displayed;
 it does not reconstruct a screen or restart a process.
 
 | Responsibility | Owner |
 | --- | --- |
-| Create shells and other application processes | Remote termlab |
-| Own PTY masters, controlling terminals, process groups, and child lifecycle | Remote termlab |
+| Create shells and other application processes | Remote kittyplex |
+| Own PTY masters, controlling terminals, process groups, and child lifecycle | Remote kittyplex |
 | Interpret application terminal output | Local kitty |
 | Keep screen contents, parser state, cursor, scrollback, and terminal modes | Local kitty, separately per session |
 | Encode keyboard and mouse events according to a session's terminal modes | Local kitty |
-| Deliver input and terminal responses to the appropriate remote PTY | Termlab transport and routing layer |
-| Present and manage the selected view | Kitty integration coordinated with termlab |
+| Deliver input and terminal responses to the appropriate remote PTY | Kittyplex transport and routing layer |
+| Present and manage the selected view | Kitty integration coordinated with kittyplex |
 
-Termlab must not contain a terminal-emulation library or reproduce kitty's screen
+Kittyplex must not contain a terminal-emulation library or reproduce kitty's screen
 model. Framing opaque byte streams and handling explicit management messages is
 permitted and necessary.
 
@@ -66,10 +66,10 @@ are separate from requirements.
 
 | ID | Requirement |
 | --- | --- |
-| R-01 | Support starting remote termlab after an SSH login and creating and switching sessions from there. Explicitly document any local installation, SSH configuration, or bootstrap prerequisites. |
-| R-02 | Remote termlab must create and retain ownership of application processes and PTY masters. Creating a display must not create a substitute independent SSH login shell. |
+| R-01 | Support starting remote kittyplex after an SSH login and creating and switching sessions from there. Explicitly document any local installation, SSH configuration, or bootstrap prerequisites. |
+| R-02 | Remote kittyplex must create and retain ownership of application processes and PTY masters. Creating a display must not create a substitute independent SSH login shell. |
 | R-03 | Local kitty must maintain independent terminal state for each remote session, including independent parsing of partial escape sequences and UTF-8 output. |
-| R-04 | Termlab must transport application output without interpreting it into a screen model. |
+| R-04 | Kittyplex must transport application output without interpreting it into a screen model. |
 | R-05 | Switching between existing views must preserve their state without output replay, artificial resizing, or application-specific redraw commands. Real terminal resizing may require application redraws. |
 | R-06 | Output from hidden sessions must continue updating their own terminal states, in order and without silent loss. Use bounded queues and backpressure rather than discarding output. |
 | R-07 | Route keyboard input, paste, mouse reports, focus reports, and terminal-generated responses to the originating session's PTY. Do not route a delayed response to whichever session happens to be selected later. |
@@ -77,7 +77,7 @@ are separate from requirements.
 | R-09 | Propagate real terminal dimensions to each corresponding remote PTY and let its terminal driver notify the foreground process group. |
 | R-10 | Use the configurable Ctrl-Shift-M management prefix. Preserve ordinary Ctrl-M/Enter and provide a way to send the reserved chord to an application. |
 | R-11 | Associate messages and views with stable session and group identities. Keep navigation positions separate from identities; window titles are not identities. |
-| R-12 | Independent termlab groups, including multiple SSH logins to the same server, must not send input to or close each other's sessions. |
+| R-12 | Independent kittyplex groups, including multiple SSH logins to the same server, must not send input to or close each other's sessions. |
 | R-13 | Define startup failure, session exit, view closure, controller exit, and transport-loss behavior. Clean up owned resources without affecting unrelated windows or processes. |
 | R-14 | Negotiate or verify compatible local and remote components. Unsupported configurations must produce an actionable error rather than silently claiming reliable restoration. |
 | R-15 | Remote management must have a bounded, explicit local capability. Do not require unrestricted execution of remote-supplied local commands. |
@@ -90,14 +90,14 @@ are separate from requirements.
 | Ctrl-Shift-M, `c` | Create and select a session |
 | Ctrl-Shift-M, `n` / `p` | Select next / previous session, wrapping around |
 | Ctrl-Shift-M, `1`–`9` | Select the session at that current position |
-| Ctrl-Shift-M, `q` | Quit the termlab group |
+| Ctrl-Shift-M, `q` | Quit the kittyplex group |
 | Ctrl-Shift-M, Escape | Cancel management mode silently |
 | Ctrl-Shift-M, Ctrl-Shift-M | Send one literal reserved chord to the application |
 
 Management mode ends after one action. Unknown keys cancel with a bell when
 enabled, without being passed to the application. Activate mappings only for
-termlab views. Keep equivalent command-line control available where practical;
-the original prototype's `termlab ctl` interface is a compatibility reference,
+kittyplex views. Keep equivalent command-line control available where practical;
+the original prototype's `kittyplex ctl` interface is a compatibility reference,
 not a selected remote wire protocol.
 
 ### 3.2 Scope and boundaries
@@ -128,7 +128,7 @@ changed PTY dimensions to encourage a redraw. It had no independent per-session
 terminal screen models and did not meet the clarified remote-display requirements.
 
 The original kitty kitten connected to a Unix socket on the local machine. A socket
-path exported by remote termlab would refer to the remote filesystem and cannot
+path exported by remote kittyplex would refer to the remote filesystem and cannot
 be used directly by that local kitten without a transport or forwarding layer.
 
 The following source-inspection findings supported the original analysis:
@@ -164,7 +164,7 @@ The implemented process and tab arrangement is explained in the guide linked at
 the beginning of this document.
 
 Use one existing kitty window per remote application PTY. Each local window runs
-a view relay. A local broker connects those relays to remote termlab. Kitty keeps
+a view relay. A local broker connects those relays to remote kittyplex. Kitty keeps
 the windows in a stack and preserves each window's screen normally.
 
 ```mermaid
@@ -177,7 +177,7 @@ flowchart LR
     end
     B <-->|"Authenticated SSH transport"| T
     subgraph Remote["Remote server"]
-        T["Termlab process manager"]
+        T["Kittyplex process manager"]
         T <--> P1["Application PTY 1"] <--> A1["Shell or application 1"]
         T <--> P2["Application PTY 2"] <--> A2["Shell or application 2"]
     end
@@ -188,7 +188,7 @@ that terminal. It forwards opaque bytes in both directions and reports dimension
 It must use appropriate raw terminal settings so input signals and output
 translations are not applied a second time locally.
 
-The broker manages local view associations and transport queues. Remote termlab
+The broker manages local view associations and transport queues. Remote kittyplex
 remains the authority for application creation, PTY ownership, and process
 lifecycle. A local window is a display attachment, not the application owner.
 
@@ -200,17 +200,17 @@ into kitty's own parser [S3, S4].
 
 Proposed ordering:
 
-1. Remote termlab establishes a compatible, authorized connection with local
+1. Remote kittyplex establishes a compatible, authorized connection with local
    integration and associates it with the originating SSH window.
 2. Local integration prepares a group, preferably a dedicated stack tab, while
    retaining the originating window for returning to the SSH shell.
-3. Termlab reserves a stable remote session identity.
+3. Kittyplex reserves a stable remote session identity.
 4. The broker creates a view running a fixed local relay executable.
 5. The relay reports readiness, dimensions, and terminal metadata.
-6. Termlab starts the remote application with the agreed PTY settings and streams
+6. Kittyplex starts the remote application with the agreed PTY settings and streams
    output to the ready view.
 
-Alternatively, termlab may start the application earlier only if all initial
+Alternatively, kittyplex may start the application earlier only if all initial
 output is buffered without loss until the view is ready. Failed or cancelled view
 creation must not leave an untracked application running.
 
@@ -226,19 +226,19 @@ relays still supply ordinary kitty windows.
 
 | Transport | Mechanism | Setup conditions | Assessment |
 | --- | --- | --- | --- |
-| Forwarded broker socket | Remote termlab connects to a remote Unix socket forwarded to the local broker | Forwarding prepared at connection time, or added through a usable ControlMaster; server must permit it | Recommended first conventional prototype |
-| Additional SSH execution channel | Local broker starts a non-PTY remote attachment helper that connects to existing termlab | Correct host/authentication configuration; a usable shared connection if no new login is permitted | Viable with explicit connection integration |
-| Original terminal carrier | Termlab wraps session data in authorized kitty control messages; a local helper forwards it to relays | Local helper and kitty authorization; framing and return routing through the originating terminal | Closest to an unprepared existing login, but performance and correctness are unproven |
+| Forwarded broker socket | Remote kittyplex connects to a remote Unix socket forwarded to the local broker | Forwarding prepared at connection time, or added through a usable ControlMaster; server must permit it | Recommended first conventional prototype |
+| Additional SSH execution channel | Local broker starts a non-PTY remote attachment helper that connects to existing kittyplex | Correct host/authentication configuration; a usable shared connection if no new login is permitted | Viable with explicit connection integration |
+| Original terminal carrier | Kittyplex wraps session data in authorized kitty control messages; a local helper forwards it to relays | Local helper and kitty authorization; framing and return routing through the originating terminal | Closest to an unprepared existing login, but performance and correctness are unproven |
 
 **Forwarded socket.** OpenSSH can forward a remote Unix socket to a local Unix
 socket. One broker connection can multiplex all application sessions using
 explicit session identities [S7]. This preserves binary data without terminal
-encoding and avoids additional authentication. A narrow termlab broker endpoint
+encoding and avoids additional authentication. A narrow kittyplex broker endpoint
 is preferable to forwarding unrestricted kitty control. Endpoint discovery,
 connection scoping, permissions, and stale-forward cleanup need specification.
 
 **Additional execution channel.** An attachment helper can run with no newly
-allocated remote PTY and relay frames to the existing termlab manager. It must not
+allocated remote PTY and relay frames to the existing kittyplex manager. It must not
 start replacement application shells. ControlMaster permits additional sessions
 over one network connection, but OpenSSH can fall back to a new connection when
 the master is unavailable [S8]. The integration must detect that situation if it
@@ -278,7 +278,7 @@ Actual size changes follow this path:
 
 ```text
 kitty view geometry -> local PTY resize -> relay size notification
-    -> remote termlab -> TIOCSWINSZ on application PTY
+    -> remote kittyplex -> TIOCSWINSZ on application PTY
 ```
 
 Watchers can supplement resize, focus, and closure handling [S2]. They are not
@@ -317,7 +317,7 @@ This approach reuses normal kitty windows and the documented launch/control
 surface. It avoids maintaining a modified kitty binary, at the cost of a broker,
 relay processes, and connection integration.
 
-Recommendation: test a forwarded termlab socket first to establish correct data
+Recommendation: test a forwarded kittyplex socket first to establish correct data
 flow and screen preservation. Investigate the original-terminal carrier
 separately if D-01 requires operation through unprepared existing SSH logins.
 Do not treat success with a preconfigured forward as proof of that stronger
@@ -327,14 +327,14 @@ requirement.
 
 ### 6.1 Proposed architecture
 
-Remote termlab multiplexes session traffic through its existing SSH terminal.
+Remote kittyplex multiplexes session traffic through its existing SSH terminal.
 Kitty recognizes the transport, routes payloads into independent native terminal
 instances, and returns input and responses with the corresponding session ID.
 
 ```mermaid
 flowchart LR
     subgraph Remote["Remote server"]
-        A1["Application and PTY 1"] <--> T["Termlab"]
+        A1["Application and PTY 1"] <--> T["Kittyplex"]
         A2["Application and PTY 2"] <--> T
     end
     T <-->|"Original SSH terminal stream"| M
@@ -428,7 +428,7 @@ generation, paste, focus, sizing, and closure.
 
 Kitty already has native screen and parser machinery [S10, S11, S12]. This
 approach should extend transport and ownership abstractions rather than implement
-a second terminal emulator in termlab.
+a second terminal emulator in kittyplex.
 
 ### 6.5 Complexity and estimates
 
@@ -477,7 +477,7 @@ reattachment without additional state reconstruction or preservation.
 
 | Dimension | Approach 1: existing windows and relays | Approach 2: native virtual terminals |
 | --- | --- | --- |
-| Remote process/PTY ownership | Termlab | Termlab |
+| Remote process/PTY ownership | Kittyplex | Kittyplex |
 | Terminal emulation | Existing kitty windows | Native kitty terminal instances |
 | Kitty binary changes | Not required for the conventional relay design | Probably required for a supported implementation; private-API prototypes are uncertain |
 | Local components | Kitten/integration, broker, per-view relays | Modified kitty support, likely a management kitten |
@@ -522,7 +522,7 @@ remote process association.
 
 | ID | Scenario and expected result | Requirements |
 | --- | --- | --- |
-| A-01 | Log in, run remote termlab, create several sessions, and switch. Remote PIDs and PTYs remain unchanged; no replacement login shell is created by view selection. | R-01, R-02, R-05 |
+| A-01 | Log in, run remote kittyplex, create several sessions, and switch. Remote PIDs and PTYs remain unchanged; no replacement login shell is created by view selection. | R-01, R-02, R-05 |
 | A-02 | Produce shell output, edit a partial command line, switch away, then return. Screen contents, cursor, and editing state remain correct without redraw commands. | R-03, R-05 |
 | A-03 | Run Vim and less in different sessions. Exercise main/alternate buffers and switch repeatedly. Each view preserves its own contents and modes. | R-03, R-05 |
 | A-04 | Interleave output with one session paused in partial escape and UTF-8 sequences. Each parser completes its own stream with no cross-session interpretation. | R-03, R-04, R-06 |
@@ -543,7 +543,7 @@ host-aware shell integration, nested SSH, or other untested kitty features.
 
 | Experiment | Evidence to collect | Gate |
 | --- | --- | --- |
-| E-01: bridge baseline | Two remote application PTYs attached to two real stacked kitty windows through a controlled forwarded socket | Demonstrate R-02 through R-09 without a termlab emulator. |
+| E-01: bridge baseline | Two remote application PTYs attached to two real stacked kitty windows through a controlled forwarded socket | Demonstrate R-02 through R-09 without a kittyplex emulator. |
 | E-02: exact workflow bootstrap | Attempt the selected connection setup, including two logins to the same host and relevant aliases/jump hosts | Resolve D-01 and identify explicit prerequisites; do not rely on automatic host guessing. |
 | E-03: original-terminal bridge carrier | Measure encoded/control-message throughput, input latency, kitty responsiveness, and queue behavior | Determine whether approach 1 can satisfy a no-prepared-side-channel requirement. |
 | E-04: virtual-terminal hooks | Register two native terminal instances without local application processes; route output, queries, input, resize, and closure | Determine which core changes approach 2 actually requires. |
@@ -599,10 +599,10 @@ them to implement or validate the design.
 - **S12:** [Kitty native screen state, upstream master](https://github.com/kovidgoyal/kitty/blob/master/kitty/screen.h).
 
 
-## Implementation compatibility follow-up (termlab 0.3)
+## Implementation compatibility follow-up (kittyplex 0.3)
 
 The current geometry/protocol contract is maintained in the
-[carrier reference](original-terminal-carrier.md#protocol-v2-termlab-03);
+[carrier reference](original-terminal-carrier.md#protocol-v2-kittyplex-03);
 feature evidence is maintained in [compatibility](kitty-compatibility.md).
 
 ### Native tab presentation follow-up
