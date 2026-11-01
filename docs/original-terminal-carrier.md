@@ -72,7 +72,7 @@ Every message is a JSON object with exactly these fields:
 | `seq` | Direction-wide sequence; local callback messages use zero |
 | `kind` | Operation |
 | `id` | Stable session ID; zero for group operations |
-| `data` | Base64 application bytes, or a management-command string |
+| `data` | Base64 application bytes, a management command, or optional bootstrap display context |
 | `n` | Credit amount; bootstrap uses heartbeat timeout seconds |
 | `rows`, `cols` | Positive terminal cell dimensions for readiness/resize |
 | `pixel_width`, `pixel_height` | Unsigned 16-bit pixel dimensions; zero means unknown |
@@ -117,6 +117,31 @@ callback datagrams contain exactly one envelope.
 The broker's `_local` kitten entrypoint handles create, select, carrier check,
 and cleanup operations. Terminal-origin authorization always rejects it; the
 broker reaches it through its private FD.
+
+### Desktop bootstrap additions (0.4)
+
+Carrier v2 is unchanged. `bootstrap.data` may contain a display identity such as
+`user@host`; older/manual controllers send an empty string. The Kitty helper
+keeps printable characters only and limits the result to 128 characters before
+using it as a tab-title prefix. This metadata is not an authorization identity.
+
+Desktop launchers first send an ordinary Kitty `kitten` request for `termlab.py`
+with arguments `["probe", NONCE]` and `no_response=false`. NONCE is exactly 32
+lowercase hexadecimal characters generated from 16 random bytes. The scoped
+callback permits this read-only request from its actual terminal, including a
+managed view; socket origin and target overrides remain forbidden. The helper
+checks password-mode remote control and local executable access, returning a
+JSON string with `nonce`, `desktop_api=1`, `carrier=2`, `version` and `binary`.
+No broker, group or view is created. The launcher restores terminal settings and
+requires its matching nonce/API response within three seconds before transport
+execution. Launch configuration belongs in the
+[integration instructions](integration-instructions.md).
+
+Run0 launches explicitly pass `--background=`. Native run0 background tinting
+otherwise issues an OSC 11 query on the carrier; a delayed terminal reply can
+arrive after the target controller starts and fail strict carrier framing.
+Disable the query at its source; do not relax the decoder to accept arbitrary
+unframed input. Managed application queries still use their own view path.
 
 ### Flow control and scheduling
 
@@ -185,8 +210,9 @@ SIGKILL, host crashes, and severed links cannot perform an orderly close handsha
 Installation and upgrades are covered by the [README](../README.md#install-for-a-real-remote-server).
 The configuration uses password mode with an empty-password custom authorization
 callback; no secret or public-key environment needs to be forwarded to the SSH
-server. The callback permits only bounded protocol-v2 carrier calls from their
-actual source terminal and checks its group binding.
+server. The callback permits bounded protocol-v2 carrier calls from their
+actual source terminal and checks the group binding. It also permits the scoped,
+read-only [desktop probe](#desktop-bootstrap-additions-04).
 
 It rejects generic remote-control operations, socket-origin requests, alternate
 helper paths, local-adapter operations, target overrides, and streaming/async

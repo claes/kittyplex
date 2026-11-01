@@ -95,6 +95,12 @@ resize or change the font size and repeat.
 The [Kitty compatibility reference](docs/kitty-compatibility.md) records automated
 coverage, manual checks, and remote filesystem and desktop integration limits.
 
+## Desktop installation
+
+For NixOS flake imports, Home Manager, existing Kitty configuration and automatic
+`run0`/SSH launchers, follow the [integration instructions](docs/integration-instructions.md).
+Try `termlab run0 -u bob --pty` or `termlab ssh user@server` after installation.
+
 ## Install for a real remote server
 
 Linux and kitty 0.47.4 (the pinned Nix version) are the implementation baseline;
@@ -112,7 +118,7 @@ version. The local binary runs only the broker and view relays. Each machine can
 build for its own architecture; no Nix installation is required on the server if
 you install a compatible binary there.
 
-Copy **all four integration files** into your local kitty configuration directory
+Copy **all five integration files** into your local kitty configuration directory
 (normally `~/.config/kitty/`):
 
 ```sh
@@ -148,15 +154,16 @@ The same integration also supports running `termlab` locally inside kitty.
 ### Upgrading an existing installation
 
 Use the installation steps above to update both local and remote binaries and
-all four Kitty integration files together. End existing groups and start a
+all five Kitty integration files together. End existing groups and start a
 **fresh Kitty process**: reloading configuration alone can retain cached Python
 authorization code. Carrier v2 is incompatible with v1; its
 [protocol contract](docs/original-terminal-carrier.md#protocol-v2-termlab-03)
 records the version requirements. Version 0.3 fixes missing PTY pixel dimensions
 that prevented ordinary `kitten icat` use.
 
-The native-tab update keeps carrier v2 and the CLI unchanged. Existing groups
-retain their presentation until they end; they are not converted while running.
+Version 0.4 keeps carrier v2 and adds desktop launch commands. Automatic target
+startup requires matching 0.4 binaries and the updated helpers. Existing bare
+`termlab` startup remains supported.
 
 ## Controls and lifecycle
 
@@ -231,8 +238,10 @@ authorization tests, the real SSH/kitty integration suite, and the
 [Kitty feature audit](docs/kitty-compatibility.md). The GUI suites use an
 isolated virtual display when Xvfb is available. It reports explicit skips when
 socket binding or a graphical display is unavailable; a skip is not an E2E pass.
-`nix flake check path:.` builds the package and checks Python syntax; it does not run the
-graphical acceptance suite.
+`nix flake check path:.` builds the package, checks Python syntax and validates the
+NixOS/Home Manager modules and generated Kitty config. It does not run the
+graphical acceptance suite. The separate `nix build path:.#desktop-test -L` runs
+actual cross-user run0 cases in a NixOS VM; see the integration instructions.
 
 For optional measurements against direct SSH, using eight sessions and hidden
 output:

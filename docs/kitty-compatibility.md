@@ -1,4 +1,4 @@
-# Kitty compatibility: termlab 0.3 / carrier v2
+# Kitty compatibility: carrier v2
 
 This document owns feature coverage, validation evidence and host/policy limits.
 For the process and communication model, read [How termlab works](how-it-works.md);
@@ -49,7 +49,7 @@ screen state, graphics storage and placements, not physical monitor output.
 Features absent from this table are **not tested**, rather than implicitly
 supported or unsupported. There is no claim of universal Kitty feature parity.
 
-## Validation record: 2026-11-01 (Europe/Stockholm)
+## Validation record: native-tab release, 2026-11-01 (Europe/Stockholm)
 
 The complete native-tab suite passed on Linux x86_64 with Kitty 0.47.4:
 
@@ -61,7 +61,7 @@ The complete native-tab suite passed on Linux x86_64 with Kitty 0.47.4:
 | Feature-audit tests | 9 |
 | Total | 52 |
 
-Formatting, Clippy, Nix package and Python checks passed. The current packaged
+Formatting, Clippy, Nix package and Python checks passed. The packaged
 integration and demo scripts matched the tested source, and the packaged version
 command ran. The preceding graphics audit also checked its packaged binary's
 feature-demo and metadata cases.
@@ -84,6 +84,11 @@ key, native parser readiness before input injection, and no-reset Xvfb displays)
 Some isolated X11 launches failed before bootstrap and required retry. Those
 infrastructure failures are not counted as passes.
 
+Desktop launchers added in 0.4 have their own installation and validation commands
+in the [integration instructions](integration-instructions.md). They preserve the
+carrier v2 geometry and byte-routing contracts. The native-tab release counts
+above are a historical validation record, not counts for the later desktop tests.
+
 ## Host and policy boundaries
 
 Graphics file and shared-memory transfers refer to resources accessible to the
@@ -97,7 +102,7 @@ option; termlab does not provide a filesystem bridge.
 Kitty sees a local relay process as the window's direct child. Forwarding OSC 7
 and shell markers does not teach Kitty that child is an SSH process or install
 remote shell integration. Host-aware actions (remote file links, cwd inheritance,
-remote edit/open workflows, SSH kitten integration and desktop launch actions)
+remote edit/open workflows and SSH kitten integration)
 need separate setup and testing. They are not established as equivalent to a
 native `kitten ssh` window. Interactive UI kittens are likewise workflow-specific.
 

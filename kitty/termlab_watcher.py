@@ -1,4 +1,4 @@
-"""Forward native view focus/close events without blocking kitty's UI."""
+"""Forward native view events and preserve target context in tab titles."""
 import json
 import socket
 
@@ -28,3 +28,11 @@ def on_focus_change(boss, window, data):
 
 def on_close(boss, window, data):
     emit(window, "close")
+
+
+def on_title_change(boss, window, data):
+    context = window.user_vars.get("termlab_context")
+    if isinstance(context, bytes):
+        context = context.decode("utf-8", "replace")
+    if context and (tab := window.tabref()) is not None:
+        tab.set_title(context + " · " + window.title)

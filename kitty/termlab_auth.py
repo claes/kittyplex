@@ -1,4 +1,4 @@
-"""Authorize only bounded termlab carrier calls from their actual source TTY."""
+"""Authorize scoped termlab carrier and read-only probe calls from their source TTY."""
 import os
 import runpy
 
@@ -16,7 +16,11 @@ def is_cmd_allowed(pcmd, window, from_socket, extra_data):
     if set(payload) != {"kitten", "args"} or payload.get("kitten") != "termlab.py":
         return False
     args = payload.get("args")
-    if not isinstance(args, list) or len(args) != 2 or args[0] != "carrier":
+    if not isinstance(args, list) or len(args) != 2:
+        return False
+    if args[0] == "probe":
+        return pcmd["no_response"] is False and _adapter["probe_nonce"](args[1])
+    if args[0] != "carrier":
         return False
     try:
         m = _adapter["validate"](args[1])

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from demo import Fixture
 
+INTEGRATION = Path(os.environ.get("TERMLAB_TEST_INTEGRATION", ROOT / "kitty"))
 BINARY = Path(os.environ.get("TERMLAB_TEST_BINARY", ROOT / "target/debug/termlab"))
 
 
@@ -88,7 +89,7 @@ class KittySSHCase(unittest.TestCase):
             raise unittest.SkipTest("no graphical display or Xvfb; real kitty E2E not run")
 
     def setUp(self):
-        self.fixture = Fixture(BINARY, ROOT / "kitty", rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"), features=getattr(self, "features", False))
+        self.fixture = Fixture(BINARY, INTEGRATION, rtt_ms=os.environ.get("TERMLAB_TEST_RTT_MS", "0"), features=getattr(self, "features", False))
         self.fixture.__enter__()
         self.addCleanup(self.cleanup)
         self.control = self.fixture.directory / "test-control.sock"
@@ -112,7 +113,11 @@ class KittySSHCase(unittest.TestCase):
                          "t.replace(p)\nos.execvp(sys.argv[1], sys.argv[1:])\n")
         self.process = subprocess.Popen(self.fixture.kitty + options + [shutil.which("python3"), str(entry)] + self.fixture.command, env=env,
                                         stdout=log, stderr=log, start_new_session=True)
-        self.wait_for(public_key.exists, timeout=15)
+        def key_ready():
+            if self.process.poll() is not None:
+                self.fail("Kitty exited before bootstrap: " + (self.fixture.directory / "kitty.log").read_text(errors="replace"))
+            return public_key.exists()
+        self.wait_for(key_ready, timeout=15)
         version, key = public_key.read_text().split(":", 1)
         self.encrypt = CommandEncrypter(base64.b85decode(key), version, self.password)
         self.wait_for(lambda: len(self.views()) == 1, timeout=35)
@@ -123,6 +128,8 @@ class KittySSHCase(unittest.TestCase):
     def cleanup(self):
         outcome = self._outcome.result
         failed = any(test is self for test, _ in outcome.failures + outcome.errors)
+        if failed and os.environ.get("TERMLAB_TEST_RUN0_USER"):
+            print(subprocess.run(["ps", "-eo", "user,pid,ppid,pgid,sid,stat,wchan:25,args"], capture_output=True, text=True).stdout, flush=True)
         process = getattr(self, "process", None)
         if failed and process and process.poll() is None and hasattr(self, "encrypt"):
             try:
@@ -176,7 +183,7 @@ class KittySSHCase(unittest.TestCase):
         return [window for window in self.windows() if "termlab_session" in window.get("user_vars", {})]
 
     def wait_for(self, condition, timeout=15):
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout * float(os.environ.get("TERMLAB_TEST_TIMEOUT_FACTOR", "1"))
         last = None
         while time.monotonic() < deadline:
             try:

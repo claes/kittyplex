@@ -2,6 +2,7 @@
 compile_error!("termlab currently supports Linux only");
 mod broker;
 mod control;
+mod launch;
 mod protocol;
 mod remote;
 mod session;
@@ -17,6 +18,7 @@ const HELP: &str = "termlab — remote PTYs with kitty-owned terminal screens
 Usage:
   termlab [--heartbeat-timeout SECONDS]
   termlab ctl [--socket PATH] new|next|previous|select N|status|quit
+  termlab start|run0|ssh|doctor [--help]
 
 Install the local kitty integration before starting termlab, locally or over
 ordinary SSH. Ctrl-Shift-M then c/n/p/1–9/q creates, selects, or closes sessions.
@@ -45,6 +47,10 @@ fn run() -> io::Result<()> {
             Ok(())
         }
         Some("ctl") => control::client(&args[1..]),
+        Some(mode @ ("start" | "run0" | "ssh" | "doctor" | "__start")) => {
+            launch::run(mode, &args[1..])
+        }
+        Some("__launch-tab") => launch::tab(&args[1..]),
         Some("__broker") => broker::run(&args[1..]),
         Some("__view") => view::run(&args[1..]),
         None | Some("--heartbeat-timeout") => {

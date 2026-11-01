@@ -7,9 +7,24 @@ import tempfile
 
 from kittens.tui.handler import result_handler
 from kitty.constants import config_dir
+from kitty.fast_data_types import get_options
 
 # Kitty compiles custom kittens without defining __file__.
 DIRECTORY = os.path.dirname(globals().get("__file__", os.path.join(config_dir, "termlab.py")))
+
+PACKAGED_BINARY = None
+
+
+def binary_path():
+    binary = os.environ.get("TERMLAB_BINARY") or PACKAGED_BINARY or shutil.which("termlab")
+    if not binary:
+        raise ValueError("install termlab locally or set TERMLAB_BINARY before starting Kitty")
+    return os.path.abspath(binary)
+
+
+def probe_nonce(value):
+    return isinstance(value, str) and len(value) == 32 and all(c in "0123456789abcdef" for c in value)
+
 
 KINDS = {"bootstrap", "create", "select", "output", "input_credit", "drop",
          "heartbeat", "shutdown", "abort", "finish"}
@@ -23,7 +38,7 @@ def validate(raw):
     if not isinstance(m, dict) or set(m) != FIELDS:
         raise ValueError("invalid envelope fields")
     if type(m["v"]) is not int or m["v"] != 2 or not isinstance(m["g"], str) or len(m["g"]) != 32:
-        raise ValueError("incompatible carrier protocol; install matching termlab 0.3 binaries and Kitty integration")
+        raise ValueError("incompatible carrier protocol; install matching carrier v2 binaries and Kitty integration")
     if any(c not in "0123456789abcdef" for c in m["g"]):
         raise ValueError("invalid group identifier")
     for key in ("seq", "id", "n", "rows", "cols"):
@@ -58,12 +73,11 @@ def groups(boss):
 def start(boss, window, message):
     from kitty.launch import launch, parse_launch_args
     from kitty.window import Watchers
-    binary = os.environ.get("TERMLAB_BINARY") or shutil.which("termlab")
-    if not binary:
-        raise ValueError("install termlab locally or set TERMLAB_BINARY before starting kitty")
+    binary = binary_path()
     directory = tempfile.mkdtemp(prefix="termlab-kitty-")
     state = dict(carrier=window.id, directory=directory, views={},
-                 seq=0, binary=os.path.abspath(binary))
+                 seq=0, binary=os.path.abspath(binary),
+                 context="".join(c for c in message["data"] if c.isprintable())[:128])
     groups(boss)[message["g"]] = state
     window.set_user_var("termlab_group", message["g"])
     watcher = Watchers()
@@ -141,6 +155,7 @@ def local(boss, m):
             "--var=termlab_socket=" + endpoint,
             "--var=termlab_group=" + m["g"],
             "--var=termlab_session=" + str(m["id"]),
+            "--var=termlab_context=" + state["context"],
             state["binary"], "__view", state["directory"], m["g"], str(m["id"])])
         view = launch(boss, opts, cmd, target_tab=carrier.tabref(), rc_from_window=carrier)
         if view is None:
@@ -164,6 +179,13 @@ def handle_result(args, answer, target_window_id, boss):
     if window is None:
         return "busy"
     try:
+        if len(args) == 3 and args[1] == "probe" and probe_nonce(args[2]):
+            if get_options().allow_remote_control != "password":
+                raise ValueError("Kitty must use scoped password-mode remote control")
+            binary = binary_path()
+            if not os.access(binary, os.X_OK):
+                raise ValueError("configured local termlab binary is not executable")
+            return json.dumps(dict(nonce=args[2], desktop_api=1, carrier=2, version="0.4.0", binary=binary))
         if len(args) == 3 and args[1] == "_local":
             # Only the broker's inherited private kitty FD can reach this branch:
             # the terminal authorization callback explicitly rejects _local.

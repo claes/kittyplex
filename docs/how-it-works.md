@@ -7,7 +7,7 @@ applications keep running and updating their own screens.
 
 This guide explains the running system, from the visible tabs to the individual
 processes and connections. For practical commands, start with the
-[README](../README.md). For exact interfaces, wire formats and limits, use the
+[README](../README.md) and [desktop integration instructions](integration-instructions.md). For exact interfaces, wire formats and limits, use the
 [carrier reference](original-terminal-carrier.md). The
 [compatibility reference](kitty-compatibility.md) records what has been tested;
 the [architecture analysis](remote-session-architecture.md) preserves requirements
@@ -52,6 +52,9 @@ normally start the controller and the integration starts its local counterparts.
 
 | Invocation | Location | Responsibility |
 | --- | --- | --- |
+| `termlab start [--login]` | Local or target account | Login/bootstrap entry point, then the same controller |
+| `termlab run0 …` / `termlab ssh …` | Your computer | Foreground transport launcher; automatically starts the target controller |
+| `termlab __launch-tab …` | Your computer | Waits for a Kitty action launch; keeps failures readable until dismissed |
 | `termlab` | Server | The controller: creates application PTYs and shells, manages sessions, and multiplexes traffic |
 | `termlab __broker …` | Your computer | The broker: routes traffic between the Kitty integration and the session relays |
 | `termlab __view … SESSION_ID` | Your computer, one per session | A relay: transfers bytes between its local terminal and the broker |
@@ -87,6 +90,12 @@ processes themselves. This is typical ancestry, not a universal `ps` listing:
 shells can replace themselves with commands, and SSH's worker structure varies.
 The important distinction is that the local relay is not the remote shell. The
 broker does not run the remote applications.
+
+The desktop launchers can replace the manual SSH-login step with automatic target
+startup, or use run0 to start the controller as another local user. Their process
+ancestry and privilege boundary are documented in the
+[integration instructions](integration-instructions.md#processes-and-privilege-boundaries);
+the controller, broker, relay and PTY roles below are the same.
 
 The original remote login shell waits while its `termlab` command runs. When the
 controller exits normally, that shell resumes and gives you your original SSH

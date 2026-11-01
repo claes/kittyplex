@@ -122,6 +122,21 @@ class HelperTests(unittest.TestCase):
         self.assertIn(os.path.join(config_dir, "termlab.py"), launch.call_args.args[2])
         self.assertIn("child_death_callback", launch.call_args.kwargs)
 
+    def test_probe_is_read_only_and_requires_scoped_control(self):
+        module = self.adapter()
+        boss = SimpleNamespace(window_id_map={1: SimpleNamespace(user_vars={})})
+        nonce = "a" * 32
+        with patch.dict(module["handle_result"].impl.__globals__, get_options=lambda: SimpleNamespace(allow_remote_control="password")), patch.dict(os.environ, TERMLAB_BINARY="/bin/sh"):
+            response = json.loads(module["handle_result"](["termlab.py", "probe", nonce], None, 1, boss))
+        errors = []
+        boss.show_error = lambda *args: errors.append(args)
+        with patch.dict(module["handle_result"].impl.__globals__, get_options=lambda: SimpleNamespace(allow_remote_control="yes")):
+            self.assertEqual(module["handle_result"](["termlab.py", "probe", nonce], None, 1, boss), "busy")
+        self.assertTrue(errors)
+        self.assertEqual((response["nonce"], response["desktop_api"]), (nonce, 1))
+        self.assertFalse(hasattr(boss, "_termlab_groups"))
+        self.assertEqual(boss.window_id_map[1].user_vars, {})
+
     def test_routes_nonblocking_datagram_to_originating_window(self):
         module = self.adapter()
         received = []
@@ -195,6 +210,18 @@ class AuthorizationTests(unittest.TestCase):
             payload=dict(kitten="termlab.py", args=["carrier", json.dumps(message)]))
         self.window = SimpleNamespace(user_vars={})
         self.authorize = runpy.run_path(str(ROOT / "kitty/termlab_auth.py"))["is_cmd_allowed"]
+
+    def test_probe_authorization_is_bounded_and_cannot_launch(self):
+        def command(args, **changes):
+            return dict(self.command, payload=dict(kitten="termlab.py", args=args), **changes)
+        good = command(["probe", "a" * 32])
+        self.assertTrue(self.authorize(good, self.window, False, {}))
+        self.assertFalse(self.authorize(good, self.window, True, {}))
+        self.assertFalse(self.authorize(command(["probe", "a" * 32], no_response=True), self.window, False, {}))
+        for args in [["probe", "a" * 33], ["probe", "A" * 32], ["probe", {}], ["probe", "a" * 32, "extra"], ["run0", "-uroot"], ["start", ""]]:
+            self.assertFalse(self.authorize(command(args), self.window, False, {}), args)
+        launch = dict(self.command, payload=dict(kitten="termlab_launch.py", args=["run0", "-uroot"]))
+        self.assertFalse(self.authorize(launch, self.window, False, {}))
 
     def test_bootstrap_and_group_binding(self):
         self.assertTrue(self.authorize(self.command, self.window, False, {}))

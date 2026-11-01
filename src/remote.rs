@@ -115,6 +115,7 @@ impl Remote {
     fn event_loop(&mut self) -> io::Result<()> {
         let mut bootstrap = Message::new(&self.group, "bootstrap", 0);
         bootstrap.n = self.timeout.as_secs() as usize;
+        bootstrap.data = std::env::var("TERMLAB_CONTEXT").unwrap_or_default();
         self.messages.push_back(bootstrap);
         loop {
             if Signals::terminating() && !self.closing {
@@ -307,7 +308,7 @@ impl Remote {
         let v: serde_json::Value = serde_json::from_slice(bytes)?;
         if v["ok"] != true {
             return Err(io::Error::other(format!(
-                "kitty rejected carrier (requires matching termlab 0.3 / carrier v2 binaries and Kitty integration): {}",
+                "kitty rejected carrier (requires matching carrier v2 binaries and Kitty integration): {}",
                 v["error"]
             )));
         }

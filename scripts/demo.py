@@ -106,7 +106,7 @@ LogLevel VERBOSE
         self.run(self.ssh + ["true"])
         conf = root / "kitty"
         conf.mkdir(mode=0o700)
-        for name in ("termlab.py", "termlab_auth.py", "termlab_watcher.py", "termlab.conf"):
+        for name in ("termlab.py", "termlab_auth.py", "termlab_watcher.py", "termlab_launch.py", "termlab.conf"):
             shutil.copy(self.integration / name, conf / name)
         (conf / "kitty.conf").write_text("include termlab.conf\nconfirm_os_window_close 0\nshell_integration disabled\n")
         # Clean Bash startup files, but retain the real user's home and identity.
