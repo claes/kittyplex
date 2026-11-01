@@ -10,6 +10,22 @@ This document owns installation and launch configuration. The
 [compatibility](kitty-compatibility.md) covers terminal features and their limits.
 Detach and reattach remain unimplemented; see [detach analysis](detach-analysis.md).
 
+## Choose a setup path
+
+Choose one path for configuring Kitty; avoid duplicate includes or two tools
+managing the same files. All paths use the same packaged integration assets.
+
+| Setup | Who configures Kitty? | Complete examples |
+| --- | --- | --- |
+| [Kittyplex modules](#install-with-nixos-and-home-manager) | The project's NixOS and Home Manager modules | [Module-based flake](../examples/flake-with-modules.nix) |
+| [Explicit Nix configuration](#explicit-nix-configuration-without-kittyplex-modules) | Your own standard Home Manager settings | [Manual Home Manager flake](../examples/flake-manual-home-manager.nix) |
+| [Manual Kitty configuration](#manual-kitty-configuration) | You edit your existing `kitty.conf` | [Kitty config fragment](../examples/kitty.conf) and optional [NixOS package-only flake](../examples/flake-manual.nix) |
+
+The Nix examples use your existing `configuration.nix`, including users and
+hardware imports. Replace `myhost`, `alice` and the architecture, and retain your
+existing state versions. Merge their settings into your current flake rather
+than replacing your host configuration.
+
 ## Install with NixOS and Home Manager
 
 Use [examples/flake-with-modules.nix](../examples/flake-with-modules.nix) as a
@@ -71,12 +87,55 @@ A source build under a private home directory may be inaccessible to another use
 Target installation is a prerequisite for SSH;
 launchers do not upload binaries or bootstrap Nix.
 
-## Incorporate into an existing Kitty configuration, without module options
+## Explicit Nix configuration without kittyplex modules
 
-[examples/flake-manual.nix](../examples/flake-manual.nix) is a complete consumer
-example with no `programs.kittyplex` options or kittyplex module imports. It installs
-the package, Kitty, terminfo and run0's Polkit prerequisite. Merge it into your
-host flake, rebuild, then install the integration links as your desktop user:
+[examples/flake-manual-home-manager.nix](../examples/flake-manual-home-manager.nix)
+shows the complete NixOS flake, including inputs and explicit Kitty configuration.
+It imports standard Home Manager only: it does not import either of this
+project's integration modules or use any `programs.kittyplex` options.
+
+The example explicitly installs the kittyplex package and Kitty terminfo using
+`environment.systemPackages`, and enables normal run0 authentication using
+`security.polkit.enable`. For run0, the host must have systemd >=258; these manual
+settings do not add the version assertions supplied by the kittyplex module.
+Kitty itself is installed for the desktop user by `programs.kitty.enable`.
+
+Within `home-manager.users.alice`, it sets
+`programs.kitty.settings.allow_remote_control = "password"`, adds
+`include kittyplex.conf` through `programs.kitty.extraConfig`, and declares all
+five `xdg.configFile` sources individually. The sources point into
+`${kittyplexPackage}/share/kittyplex/kitty`, keeping helpers and the binary from
+the same package. No shell copy/link step is needed for this path.
+
+Merge the example's `programs.kitty` settings with your existing Home Manager
+settings. Back up existing manually maintained files at the five managed paths
+before activation. Keep your other Kitty settings and include the integration
+only once. Optional launch bindings are commented out in the example.
+
+Apply the configuration using your normal `nixos-rebuild switch --flake .#myhost`,
+then follow [Verify the setup](#verify-the-setup).
+
+## Manual Kitty configuration
+
+This path works with an existing `kitty.conf` and needs no Home Manager or
+kittyplex integration module. Follow these steps as your desktop user.
+
+### 1. Install the binary and integration assets
+
+On NixOS, [examples/flake-manual.nix](../examples/flake-manual.nix) installs the
+package, Kitty, terminfo and run0's Polkit prerequisite using standard NixOS
+options only. It does **not** configure Kitty or install files in your home.
+Merge it into your host flake and rebuild before continuing. Run0 requires
+systemd >=258 and normal Polkit authorization.
+
+For a source build, use the [README build instructions](../README.md#install-for-a-real-remote-server).
+Install the binary on your local PATH; SSH targets also need a compatible binary
+and `xterm-kitty` terminfo. The four Python helpers and `kittyplex.conf` are in
+`kitty/` in a checkout, or `share/kittyplex/kitty/` in a Nix package output.
+
+### 2. Place all five files in Kitty's configuration directory
+
+With the NixOS package-only example, create links to the system package:
 
 ```sh
 kittyplex_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
@@ -86,17 +145,66 @@ for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch
 done
 ```
 
-Back up existing files at those names first; these commands intentionally fail
-rather than overwrite them. If Kitty uses an explicit `--config` or custom
-configuration directory, install the helpers in its actual config directory.
-The bare filename `kittyplex.py` must resolve there: an `action_alias` cannot replace
-that requirement for terminal-originated requests.
+Alternatively, copy files from a checkout or package output. From the project
+root, choose the source directory and run:
 
-Add this line to your **existing** `kitty.conf`:
+```sh
+kittyplex_assets=kitty
+# For a package built with `nix build path:.`, use instead:
+# kittyplex_assets=result/share/kittyplex/kitty
+kittyplex_kitty_dir="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
+mkdir -p "$kittyplex_kitty_dir"
+for file in kittyplex.py kittyplex_auth.py kittyplex_watcher.py kittyplex_launch.py kittyplex.conf; do
+  cp -i "$kittyplex_assets/$file" "$kittyplex_kitty_dir/$file"
+done
+```
+
+Back up existing files at those names first. The linking commands fail rather
+than overwrite an existing file; the copying commands ask before overwriting.
+For a custom Kitty configuration directory or explicit `--config`, use the actual
+config directory recognized by Kitty rather than assuming the default path.
+The bare filename `kittyplex.py` must resolve there: an `action_alias` cannot
+replace that requirement for terminal-originated requests.
+
+For the default location, the result is:
+
+```text
+~/.config/kitty/
+├── kitty.conf                 # Your existing settings, plus the include below
+├── kittyplex.conf             # Management mappings, scoped authorization, aliases
+├── kittyplex.py
+├── kittyplex_auth.py
+├── kittyplex_watcher.py
+└── kittyplex_launch.py
+```
+
+### 3. Merge the include into your existing Kitty configuration
+
+[examples/kitty.conf](../examples/kitty.conf) is a copyable fragment. Merge its
+lines into your current file; do not replace your existing configuration with it.
+The required addition is:
 
 ```conf
 include kittyplex.conf
 ```
+
+### Verify the setup
+
+For either manual path or explicit Nix configuration, start a **fresh Kitty
+process** after installation; a config reload alone can retain cached Python
+code. From a shell in that Kitty, run:
+
+```sh
+kittyplex doctor
+kittyplex start
+```
+
+Doctor should report desktop API 1 and carrier v2. In the new session, press
+Ctrl-Shift-M then `c` to create another tab, switch between the tabs, and press
+Ctrl-Shift-M then `q` to close the group and return to your shell. For user
+switching, try `kittyplex run0 -u bob --pty` with an existing target account.
+
+## Kitty settings shared by all setup paths
 
 The include contains the scoped Ctrl-Shift-M management mappings, authorization
 callback and optional action aliases. Replace conflicting `allow_remote_control`
@@ -122,7 +230,15 @@ They neither wrap nor modify Kitty's bundled `kitten ssh`. You can also bind
 
 For a custom management prefix, copy `kittyplex.conf` instead of symlinking it and
 change **both** occurrences of `ctrl+shift+m` (entry and literal-prefix forwarding).
-Review the copied file when upgrading. Packaged helpers pin their local executable
+With explicit Home Manager configuration, keep the edited file in your own
+configuration repository and replace only that file's source:
+
+```nix
+xdg.configFile."kitty/kittyplex.conf".source = ./kittyplex.conf;
+```
+
+Keep the four helper sources pointing to the package. Review the copied config
+when upgrading. Packaged helpers pin their local executable
 to the matching Nix store path, so Kitty need not inherit a particular shell PATH.
 `KITTYPLEX_BINARY`, set before Kitty starts, remains an explicit override for source
 development. End old groups, update targets and helpers together, and start fresh

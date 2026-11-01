@@ -97,8 +97,12 @@ coverage, manual checks, and remote filesystem and desktop integration limits.
 
 ## Desktop installation
 
-For NixOS flake imports, Home Manager, existing Kitty configuration and automatic
-`run0`/SSH launchers, follow the [integration instructions](docs/integration-instructions.md).
+Choose how to configure Kitty:
+
+- [Kittyplex NixOS/Home Manager modules](docs/integration-instructions.md#install-with-nixos-and-home-manager).
+- [Explicit Nix settings without kittyplex modules](docs/integration-instructions.md#explicit-nix-configuration-without-kittyplex-modules), with a complete standard Home Manager flake example.
+- [Your existing `kitty.conf`](docs/integration-instructions.md#manual-kitty-configuration), with package-only NixOS and plain Kitty examples.
+
 Try `kittyplex run0 -u bob --pty` or `kittyplex ssh user@server` after installation.
 
 ## Install for a real remote server
@@ -118,22 +122,10 @@ version. The local binary runs only the broker and view relays. Each machine can
 build for its own architecture; no Nix installation is required on the server if
 you install a compatible binary there.
 
-Copy **all five integration files** into your local kitty configuration directory
-(normally `~/.config/kitty/`):
-
-```sh
-mkdir -p ~/.config/kitty
-cp kitty/kittyplex.conf kitty/kittyplex*.py ~/.config/kitty/
-# With the Nix package, use result/share/kittyplex/kitty/ instead of kitty/.
-```
-
-Add `include kittyplex.conf` to `kitty.conf`, then start a fresh kitty process that
-can find the local binary on PATH. Alternatively, set `KITTYPLEX_BINARY` to its
-absolute local path **before starting kitty**. The included configuration enables
-password-mode remote control with a narrowly scoped authorization callback;
-it does not require a global kitty socket or unrestricted remote control.
-An existing unrestricted `allow_remote_control yes` setting would bypass that
-callback and should be replaced with the included configuration for this setup.
+Configure local Kitty using one of the [desktop installation paths](#desktop-installation).
+The [manual setup guide](docs/integration-instructions.md#manual-kitty-configuration)
+shows all five integration files, the config include and executable discovery
+for source builds and Nix packages.
 
 Then use your normal login:
 
