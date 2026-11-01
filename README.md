@@ -10,9 +10,13 @@ This is an experimental implementation of **approach 1, original terminal
 carrier**. The real SSH/kitty acceptance suite now runs on an isolated virtual
 display, including a test transport with 100 ms of added round-trip latency.
 Use the demo below to check the interactive outcome on your desktop.
-The [carrier implementation reference](docs/original-terminal-carrier.md) records
-the protocol, lifecycle, limitations, and validation status. The
-[architecture analysis](docs/remote-session-architecture.md) retains both approaches.
+Read [How termlab works](docs/how-it-works.md) for a diagram-led explanation of
+the processes, PTYs, and communication paths, starting with the basics. The
+[carrier reference](docs/original-terminal-carrier.md) specifies the protocol and
+failure contracts; the [compatibility reference](docs/kitty-compatibility.md)
+records feature coverage and validation. The
+[architecture analysis](docs/remote-session-architecture.md) preserves the
+requirements and alternatives considered before implementation.
 
 ## Try it: one command
 
@@ -91,13 +95,6 @@ resize or change the font size and repeat.
 The [Kitty compatibility reference](docs/kitty-compatibility.md) records automated
 coverage, manual checks, and remote filesystem and desktop integration limits.
 
-Version 0.3 transports pixel dimensions as well as rows and columns, fixing
-`kitten icat` reporting that the terminal cannot report its size in pixels.
-Upgrade **both local and remote binaries and all four Kitty integration files**
-together. Carrier protocol v2 is incompatible with v1. End existing groups and
-start a **fresh Kitty process** after upgrading: reloading configuration alone
-can retain cached Python authorization code.
-
 ## Install for a real remote server
 
 Linux and kitty 0.47.4 (the pinned Nix version) are the implementation baseline;
@@ -148,9 +145,18 @@ They start with a `termlab N` title and follow application title changes. Your
 Kitty tab-bar settings control their appearance.
 The same integration also supports running `termlab` locally inside kitty.
 
-Tab support uses the existing carrier protocol v2 and CLI. Copy the updated
-integration files and start a fresh Kitty process; existing groups are not
-converted to tabs while running.
+### Upgrading an existing installation
+
+Use the installation steps above to update both local and remote binaries and
+all four Kitty integration files together. End existing groups and start a
+**fresh Kitty process**: reloading configuration alone can retain cached Python
+authorization code. Carrier v2 is incompatible with v1; its
+[protocol contract](docs/original-terminal-carrier.md#protocol-v2-termlab-03)
+records the version requirements. Version 0.3 fixes missing PTY pixel dimensions
+that prevented ordinary `kitten icat` use.
+
+The native-tab update keeps carrier v2 and the CLI unchanged. Existing groups
+retain their presentation until they end; they are not converted while running.
 
 ## Controls and lifecycle
 

@@ -6,32 +6,26 @@ kitty 0.47.4; initial API inspection also used 0.49.1.
 
 ## Decisions and ownership
 
-Approach 1 is selected. Remote termlab owns application PTY masters, child shells,
-foreground-job signaling, and the remote control socket. Local kitty owns one
-normal screen/parser/mode set per session. A Rust broker and Rust view relays
-connect these endpoints. Python supplies only kitty launch, authorization,
-nonblocking datagram forwarding, and watcher callbacks.
+Approach 1, original terminal carrier, is selected. The
+[explanatory guide](how-it-works.md) describes the running system and ownership;
+the [architecture analysis](remote-session-architecture.md) preserves the
+requirements and alternatives. This document specifies the implementation
+contracts rather than repeating those explanations.
 
-The original terminal, including an existing ordinary SSH connection, carries all
-traffic. No separate SSH login per view, port forwarding, ControlMaster, TCP
-service, public kitty socket, screen replay, synthetic resize, or terminal
-emulation is introduced. The original window remains open in its original tab;
-each session view has its own native Kitty tab in the carrier’s OS window.
-New tabs append to that window’s tab list. Tab titles follow the session window
-(initially `termlab N`), including application-supplied OSC titles. User tab-bar
-settings and layouts are respected.
-
-Linux, one controller, matching protocol-v2 components, and at most eight live
-sessions are the initial limits. Closing a view closes its remote session.
-Controller/transport loss ends the entire group. Native virtual terminals inside
-kitty remain the deferred alternative described in the architecture analysis.
+The implementation requires Linux and matching carrier-v2 components and permits
+at most eight live sessions per group. It uses the original terminal transport
+without a separate SSH login per view, forwarding service or terminal emulator.
 
 ## Processes and interfaces
+
+For the process tree and role descriptions, see
+[which processes run where](how-it-works.md#2-which-processes-run-where).
+The exact invocation and endpoint contracts follow.
 
 `termlab [--heartbeat-timeout SECONDS]` starts the remote controller. The timeout
 is at least ten seconds and defaults to thirty. The controller samples cooked
 carrier termios before entering raw mode and seeds new application PTYs with that
-snapshot. Each application is a session leader with its own controlling PTY.
+snapshot. Each spawned shell is a session leader with its own controlling PTY.
 
 `termlab ctl [--socket PATH] new|next|previous|select N|status|quit` uses the
 existing private remote Unix stream socket. `new` is asynchronous: it acknowledges
@@ -48,49 +42,24 @@ Remote paths and remote environment variables never select the local executable.
 
 ## Bootstrap and data paths
 
-1. The controller generates a 128-bit group ID and sends a bounded kitty DCS
-   remote-control `kitten` invocation through its original terminal output.
-2. Kitty's authorization callback permits only the fixed `termlab.py carrier`
-   entrypoint from the actual originating terminal. The helper associates that
-   window with the group and launches the local broker with a private control FD.
-3. The broker binds its local sockets and sends `ready` back by invoking kitty
-   `send-text` against the carrier window. This becomes ordinary SSH input.
-4. The controller requests a view. The broker invokes the local adapter through
-   its private FD. The adapter launches a normal kitty window running the Rust
-   relay in a new tab and registers watcher variables. The carrier tab selects
-   the target OS window even when an unrelated tab or OS window is active.
-5. The relay enters raw mode, connects to the broker, and reports readiness and
-   dimensions. Only then does the controller create the corresponding remote PTY
-   and shell.
-6. Application PTY output becomes an `output` message. The carrier adapter
-   atomically forwards it to the broker; the broker routes it to that relay.
-   The relay writes raw bytes to its own local PTY. Kitty parses those bytes
-   normally, including when the view is hidden.
-7. Keyboard bytes and kitty-generated terminal replies both arrive as relay PTY
-   input. Session-tagged messages follow the reverse route to their remote PTY.
-   Native resize events carry dimensions independently of application output.
+The [startup sequence](how-it-works.md#7-startup-and-session-creation) and
+separate [output](how-it-works.md#5-application-output-server-to-screen) and
+[input](how-it-works.md#6-input-and-terminal-replies-screen-to-server) sequences
+are explained in the guide. Framing and ordering are specified below.
 
-Python never waits for a socket response or runs a bulk I/O loop on kitty's UI
-thread. Its datagram sends are nonblocking. A busy carrier mailbox produces a
-retry response. Management-send failures produce an error so the user can retry;
+Kitty callbacks must not wait for a socket response. A busy carrier mailbox
+returns an explicit retry response. Management-send failures produce a user error;
 watcher focus updates are advisory and may be coalesced/lost under congestion.
-Management commands include the originating view's ID, while relay EOF provides
-an independent reliable notification of view closure.
+Management messages identify the originating view; relay EOF independently
+reports closure.
 
 ## Native tab navigation and ownership
 
-Each session starts in a separate tab; no shared-tab object or forced stack
-layout is retained. Window IDs still route all transport and management traffic.
-Native tab navigation reports focus through the existing watcher. Termlab next,
-previous and numbered selection use creation order within one group, independently
-of native tab reordering. Ordinary tabs are outside that navigation.
-
-Closing a session tab closes its relay and remote session. Closing the last
-session ends the group and returns to the original carrier. Group cleanup closes
-only registered view windows; ordinary windows manually added to those tabs
-remain. Carrier loss and explicit quit retain their existing lifecycle rules.
-The CLI and protocol v2 are unchanged. Install the updated integration and start
-a fresh Kitty process; live conversion of existing groups is not supported.
+The [user-facing selection and ownership rules](../README.md#controls-and-lifecycle)
+are maintained in the README. The guide explains
+[how native focus and retained screens work](how-it-works.md#8-switching-resizing-and-graphics).
+Protocol routing uses stable group/session identities, independently of mutable
+tab titles or positions.
 
 ## Protocol v2 (termlab 0.3)
 
@@ -113,9 +82,10 @@ readiness and every `SIGWINCH` (including pixel-only changes), and are applied
 unchanged with `TIOCSWINSZ` to the corresponding remote application PTY. Unknown
 pixel dimensions remain zero; the carrier does not invent a cell size. All v2
 messages require the pixel fields, including messages where they are zero.
-Upgrade local/remote binaries and all four integration files together and start
-a fresh Kitty process. The native Kitty remote-control version below is separate
-from termlab’s carrier version. See [compatibility](kitty-compatibility.md).
+Carrier v1 is not negotiated; use the
+[upgrade procedure](../README.md#upgrading-an-existing-installation).
+The native Kitty remote-control version below is separate from termlab’s carrier
+version. Feature evidence is recorded in [compatibility](kitty-compatibility.md).
 
 Controller-to-kitty calls use `ESC P @kitty-cmd JSON ESC \\`, kitty protocol
 version `[0,47,4]`, command `kitten`, and arguments `carrier` plus the serialized
@@ -212,12 +182,11 @@ SIGKILL, host crashes, and severed links cannot perform an orderly close handsha
 
 ## Authorization and configuration
 
-Install the binary locally and remotely and copy the four integration files into
-the local kitty configuration directory. Include `termlab.conf` and start a fresh
-kitty process. The configuration uses password mode with an empty-password
-custom authorization callback; no secret or public-key environment needs to be
-forwarded to the SSH server. The callback permits only bounded protocol-v1 carrier
-calls from their actual source terminal and checks its group binding.
+Installation and upgrades are covered by the [README](../README.md#install-for-a-real-remote-server).
+The configuration uses password mode with an empty-password custom authorization
+callback; no secret or public-key environment needs to be forwarded to the SSH
+server. The callback permits only bounded protocol-v2 carrier calls from their
+actual source terminal and checks its group binding.
 
 It rejects generic remote-control operations, socket-origin requests, alternate
 helper paths, local-adapter operations, target overrides, and streaming/async
@@ -235,23 +204,17 @@ The demo scopes kitty configuration with the documented
 
 ## Demo, tests, and validation record
 
-`nix run .#demo` / `./scripts/demo.sh` opens a separate kitty process, generates
-private temporary SSH keys, pins a generated host key in temporary known hosts,
-and connects through a temporary localhost-only unprivileged sshd. Its server
-config disables password authentication and forwarding. `StrictModes no` is
-scoped to this fixture because authorized keys are under a private temporary
-folder outside the user's home; key files and their directory remain private.
-The fixture never edits user configuration or system services. Quitting termlab
-returns to its original SSH shell; exiting that shell ends the fixture.
+Demo and verification commands live in the [README](../README.md#automated-verification).
+The fixture uses a separate Kitty process and a temporary localhost-only,
+unprivileged sshd. Generated host keys are pinned in temporary known hosts; the
+server disables password authentication and forwarding. `StrictModes no` is
+scoped to the fixture because its authorized keys are in a private temporary
+directory outside the user's home. The fixture does not modify user configuration
+or system services.
 
-`nix develop --command ./scripts/test.sh` runs non-graphical checks and the real
-SSH/kitty acceptance suite. A temporary Xvfb display is preferred for automated
-checks. Test-only encrypted remote control uses a random capability and socket
-inside the fixture; it is not enabled by the interactive demo or product config.
-The suite covers independent screens, hidden output, Vim restoration, native
-focus, resize, terminal replies, job control, view closure, carrier loss, and
-return to the original SSH shell. It is a starting acceptance suite, not evidence
-that every architecture-analysis scenario has passed.
+The [compatibility reference](kitty-compatibility.md#automated-evidence-and-remaining-checks)
+describes the isolated GUI controller and the limits of its evidence. Neither the
+interactive demo nor product configuration enables that test-only capability.
 
 `tests/benchmark.py` measures direct SSH and the carrier with eight sessions and
 hidden output, recording raw samples and throughput in JSON. Screen polling is
@@ -262,13 +225,11 @@ p95 response time relative to direct SSH under the same test transport.
 
 ### Current 0.3 validation
 
-The pixel-size regression and application-title override are fixed. The expanded
-[compatibility audit](kitty-compatibility.md) records 16 Rust, 14 Kitty helper,
-13 regression (including native-tab lifecycle/navigation) and 9 feature-audit
-cases passing on Kitty 0.47.4. Focused native-tab and graphics/input checks also
-pass on Kitty 0.49.1 and under added transport delay. It distinguishes native-state evidence from manual desktop
-and separate-host checks. Protocol v2 requires upgrading both binaries and all
-four integration files, then starting a fresh Kitty process.
+Current test counts, tested versions, transport-delay coverage and untested
+scenarios are maintained in the
+[compatibility validation record](kitty-compatibility.md#validation-record-2026-11-01-europestockholm).
+The dated initial records below are historical evidence, not a second current
+validation summary.
 
 ### Initial 0.2 validation record
 
@@ -290,8 +251,8 @@ Validation on Linux x86_64:
   with 100 ms added RTT, and **11 passed** on kitty 0.49.1 without added delay.
   These include broker-crash and controller-termination recovery, parser/UTF-8
   fragmentation, independent groups, and repeated quit/restart cycles.
-- Nix package and Python checks pass; the packaged demo launcher builds and its
-  startup/help path executes. The packaged executable is checked separately.
+- Nix package and Python checks passed; the packaged demo launcher built and its
+  startup/help path executed. The packaged executable was checked separately.
 - Desktop keystrokes and physical display refresh have not been instrumented;
   automated GUI checks use Xvfb. aarch64-linux has not been executed here.
 

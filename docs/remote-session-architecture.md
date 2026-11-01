@@ -1,27 +1,19 @@
 # Remote sessions with kitty-owned terminal state
 
-Status: approach 1 selected, using the original terminal carrier. Experimental
-implementation now has real graphical SSH acceptance tests and performance
-measurements. See [the implementation reference](original-terminal-carrier.md)
-for the current contract and test status.
+Status: historical requirements and design analysis. Approach 1 with the original
+terminal carrier was subsequently selected and implemented; approach 2 remains
+unimplemented. Read [How termlab works](how-it-works.md) for the running system,
+the [carrier reference](original-terminal-carrier.md) for its current contracts,
+and [compatibility](kitty-compatibility.md) for validation evidence.
 
-Selected decisions: local Rust broker and Rust relays; Linux/kitty 0.47.4 baseline (also tested with 0.49.1);
-closing a view closes its remote session; controller/carrier loss closes the whole
-group. Persistence and native kitty virtual terminals remain deferred. The D-xx
-entries below preserve the original alternatives; this decision record supersedes
-them for the initial implementation.
-
-Last reviewed: 2026-10-31. Local inspection used kitty 0.49.1. Linked upstream
-source files track `master` and may differ from that installed version.
-
-This document records the intended remote workflow, compares two implementation
-approaches, and identifies the decisions and experiments required before either
-can become an implementation specification. It supersedes the earlier suggestion
-that local kitty windows should each start an independent remote login shell.
-Approach 1 now has an experimental implementation validated with real kitty and
-SSH on a virtual display, including a delayed test transport. Approach 2 remains
-unimplemented. The implementation reference records current validation results;
-the capability table below preserves the original source-inspection findings.
+Analysis baseline: 2026-10-31, with local Kitty 0.49.1 source inspection. This
+analysis compared the alternatives before the carrier implementation existed.
+Its prototype descriptions, proposed stack-tab presentation, capability findings,
+estimates and D-xx entries preserve that context rather than specifying today's
+implementation. The R-xx requirements and acceptance scenarios retain their
+identifiers. Linked upstream source files track `master` and may differ from the
+inspected version. This document superseded the earlier suggestion that each
+local Kitty window should start an independent remote login shell.
 
 ## 1. Goal and ownership model
 
@@ -105,7 +97,7 @@ are separate from requirements.
 Management mode ends after one action. Unknown keys cancel with a bell when
 enabled, without being passed to the application. Activate mappings only for
 termlab views. Keep equivalent command-line control available where practical;
-the current prototype's `termlab ctl` interface is a compatibility reference,
+the original prototype's `termlab ctl` interface is a compatibility reference,
 not a selected remote wire protocol.
 
 ### 3.2 Scope and boundaries
@@ -129,17 +121,17 @@ one SSH channel, or one SSH channel with the original terminal byte stream.
 
 ## 4. Current prototype and evidence baseline
 
-The repository currently implements a local PTY session switcher. It forwards the
-selected session's output, discards inactive output, clears the display on switch,
-and briefly changes PTY dimensions to encourage a redraw. It has no independent
-per-session terminal screen models. It therefore does not meet the clarified
-remote-display requirements.
+**Historical baseline:** this section describes the prototype inspected before
+the carrier implementation. That prototype forwarded the selected session's
+output, discarded inactive output, cleared the display on switch, and briefly
+changed PTY dimensions to encourage a redraw. It had no independent per-session
+terminal screen models and did not meet the clarified remote-display requirements.
 
-The current kitty kitten connects to a Unix socket on the local machine. A socket
+The original kitty kitten connected to a Unix socket on the local machine. A socket
 path exported by remote termlab would refer to the remote filesystem and cannot
 be used directly by that local kitten without a transport or forwarding layer.
 
-The following findings support the analysis:
+The following source-inspection findings supported the original analysis:
 
 | Finding | Evidence and limitation |
 | --- | --- |
@@ -152,19 +144,24 @@ The following findings support the analysis:
 | Private parser test hooks exist | Observed in 0.49.1 and upstream source. Basic isolated-screen parsing was exercised; broader experiments encountered buffer-ownership constraints. No supported live injection API or end-to-end integration was established. |
 | SSH supports forwarded Unix sockets and connection sharing | Documented in OpenSSH [S7, S8]. Server policy and client setup still apply. |
 
-No complete bridge, native multiplexer, live GUI integration, throughput
-benchmark, or reconnect implementation has been validated. Existing prototype
-tests establish individual local PTY behaviors only. Some existing application
-tests were skipped because the execution environment prohibited Unix socket
-binding. Those skips are not positive evidence for either remote architecture.
+At that point no complete bridge, native multiplexer, live GUI integration,
+throughput benchmark or reconnect implementation had been validated. Prototype
+tests established individual local PTY behaviors only; some application tests
+were skipped because the execution environment prohibited Unix socket binding.
+Those skips were not positive evidence for either remote architecture. Later
+implementation evidence is recorded in the compatibility reference linked above.
 
-Before implementation, pin an exact kitty revision for any private-API or core
-work. Upstream `master` links below are explanatory references, not a reproducible
-compatibility guarantee.
+For future private-API or core work, pin an exact kitty revision. Upstream
+`master` links below are explanatory references, not a reproducible compatibility
+guarantee.
 
 ## 5. Approach 1: existing kitty windows with transport relays
 
 ### 5.1 Proposed components and data flow
+
+The following preserves the original proposal, including its stack-tab candidate.
+The implemented process and tab arrangement is explained in the guide linked at
+the beginning of this document.
 
 Use one existing kitty window per remote application PTY. Each local window runs
 a view relay. A local broker connects those relays to remote termlab. Kitty keeps
@@ -492,12 +489,17 @@ reattachment without additional state reconstruction or preservation.
 | Ongoing maintenance | Multiple components; primarily documented kitty interfaces | Kitty-version coupling, patch maintenance, and possible upstream work |
 | Fresh-client persistent reattachment | Not established | Not established |
 
-Neither architecture has been selected. Recommendations in this document are
-research priorities, not permission to relax the shared requirements.
+At the time of this comparison neither architecture had been selected. Its
+recommendations were research priorities, not permission to relax the shared
+requirements.
 
 ## 9. Relationship to the existing implementation
 
-| Subsystem | Reuse candidate | Required change |
+This is the original migration assessment against the pre-carrier prototype,
+not a list of remaining changes. File links identify related subsystems, whose
+contents have since changed; the guide provides the current source map.
+
+| Subsystem | Reuse candidate | Proposed change from the original baseline |
 | --- | --- | --- |
 | PTY/process backend in [src/session.rs](../src/session.rs) | PTY allocation, controlling-terminal setup, child spawning, process groups, resize, and reaping | Retain remote ownership; connect every output stream to a lossless session transport rather than a visibility-dependent sink. Review cleanup semantics against D-02/D-03. |
 | Event loop and switching in [src/main.rs](../src/main.rs) | Polling and bounded-I/O concepts | Replace shared-terminal rendering, inactive-output discard, and artificial redraw. Decouple process state from view selection. |
@@ -506,10 +508,10 @@ research priorities, not permission to relax the shared requirements.
 | Terminal guard | Saved terminal-settings and cleanup patterns | Apply settings to each transport/relay endpoint as appropriate; do not reset one shared screen's modes as a substitute for independent terminal state. |
 | Tests | Existing PTY, job-control, and mapping checks | Add real kitty/SSH integration and the acceptance scenarios below. Mock routing and skipped tests do not establish end-to-end behavior. |
 
-Existing public CLI behavior should be preserved where practical, but new
-bootstrap, attachment, or protocol interfaces must be designed explicitly before
-implementation. Do not treat the conceptual interfaces in this document as APIs
-already available from either termlab or kitty.
+The migration proposal called for retaining public CLI behavior where practical
+and explicitly designing bootstrap, attachment and protocol interfaces. Its
+conceptual interfaces are not API specifications; use the carrier reference for
+the implemented contracts.
 
 ## 10. Acceptance scenarios
 
@@ -559,6 +561,10 @@ separable from the local display backend so experiments can share useful work.
 
 ## 12. Open decisions before implementation
 
+These were the questions recorded before architecture selection. They are
+preserved for rationale and future alternatives, not presented as unresolved
+instructions for the current implementation.
+
 | ID | Decision | Why it matters / current recommendation |
 | --- | --- | --- |
 | D-01 | Must any existing plain SSH login work without prepared forwarding or ControlMaster? | Determines whether a conventional bridge meets the workflow. Treat preparation-free operation as unproven, not optional by assumption. |
@@ -595,21 +601,13 @@ them to implement or validate the design.
 
 ## Implementation compatibility follow-up (termlab 0.3)
 
-Approach 1 uses carrier v2 to preserve the complete four-field PTY window size,
-including pixels. This is required for native graphics clients such as `kitten
-icat`, even when application output itself passes through unchanged. See the
-[carrier reference](original-terminal-carrier.md) for the implemented transport
-and [Kitty compatibility matrix](kitty-compatibility.md) for evidence and remaining
-requirements. The original terminal remains the only SSH transport. No terminal
-emulator, extra SSH connection, filesystem bridge, or desktop helper service was
-added. Approach 2 remains an analysis, not an implemented backend.
-
+The current geometry/protocol contract is maintained in the
+[carrier reference](original-terminal-carrier.md#protocol-v2-termlab-03);
+feature evidence is maintained in [compatibility](kitty-compatibility.md).
 
 ### Native tab presentation follow-up
 
-The current approach-1 adapter presents each session in its own native Kitty tab,
-rather than the shared stack tab considered above. Window IDs still route session
-traffic, and the original SSH carrier remains open in its original tab. Native
-tab focus uses the existing watcher; carrier protocol v2 is unchanged. See the
-[implementation reference](original-terminal-carrier.md#native-tab-navigation-and-ownership)
-for ordering, ownership and cleanup behavior.
+For the implemented presentation, see the
+[guide](how-it-works.md#1-what-the-tabs-represent) and the
+[selection/lifecycle rules](../README.md#controls-and-lifecycle). These supersede
+the stack-tab candidate preserved in the original approach-1 proposal.

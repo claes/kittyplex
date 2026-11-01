@@ -1,30 +1,20 @@
 # Kitty compatibility: termlab 0.3 / carrier v2
 
-The remote application owns a PTY; the corresponding local Kitty window owns the
-terminal parser, screen and graphics manager. Application bytes and terminal
-replies pass through the original SSH connection. No terminal emulation or
-filesystem/desktop bridge is implemented by termlab.
+This document owns feature coverage, validation evidence and host/policy limits.
+For the process and communication model, read [How termlab works](how-it-works.md);
+for exact wire rules, use the [carrier reference](original-terminal-carrier.md).
 
 ## Geometry fix and upgrade requirements
 
 `kitten icat` first needs the PTY's pixel dimensions. Earlier termlab releases
 copied rows and columns but set the two pixel fields to zero, producing the
 reported “Terminal does not support reporting screen sizes in pixels” error.
-Version 0.3 copies all four unsigned 16-bit `winsize` fields from each local view
-into its remote PTY before starting the application. Every resize forwards the
-complete size, even if only pixels changed. Zero remains unknown, rather than a
-fabricated cell size. No `icat` override is needed when Kitty reports valid sizes.
-
-Carrier v2 requires `pixel_width` and `pixel_height` on every envelope. Install
-matching local and remote 0.3 binaries and replace **all four** integration files
-(`termlab.conf`, `termlab.py`, `termlab_auth.py`, `termlab_watcher.py`). End existing
-groups and start a **fresh Kitty process**. Config reload alone can retain cached
-Python authorization code. Mixed versions are rejected; v1 is not negotiated.
-Kitty's native RC version `[0,47,4]` is independent of carrier v2.
-
-The initial session title is now a child title, rather than a fixed override,
-so applications can update it using OSC 2. Each session has a separate native
-Kitty tab whose title follows the window title; no fixed tab title overrides it.
+Version 0.3 preserves pixel dimensions; the geometry cases below check this
+against each view's actual PTY. No `icat` override is needed when Kitty reports
+valid sizes. Exact fields, unknown-size semantics and resize handling belong to
+the [geometry contract](original-terminal-carrier.md#protocol-v2-termlab-03).
+Use the [README upgrade procedure](../README.md#upgrading-an-existing-installation)
+when replacing an older installation.
 
 ## Automated evidence and remaining checks
 
@@ -61,31 +51,37 @@ supported or unsupported. There is no claim of universal Kitty feature parity.
 
 ## Validation record: 2026-11-01 (Europe/Stockholm)
 
-Linux x86_64: 16 Rust tests, 14 Kitty helper/configuration/authorization tests,
-13 SSH/startup regression tests (including two native-tab cases) and all
-9 feature-audit tests passed on Kitty 0.47.4.
-Formatting and Clippy passed. The feature audit passed on pinned Kitty 0.47.4;
-the same cases passed on Kitty 0.49.1 across the audit and focused reruns.
-Three geometry/graphics cases also passed with 100 ms added transport RTT.
-Nix package and Python checks passed; the current packaged integration
-and demo scripts match the tested source, and the packaged version command runs.
-The preceding graphics audit also checked its packaged binary’s feature-demo
-and metadata cases. Historical 100-sample benchmark records are linked in
-the [carrier reference](original-terminal-carrier.md#03-performance-follow-up);
-the localhost hidden-flood latency target remains unmet.
-Real desktop delivery, a truly separate
-remote filesystem and aarch64 execution were not tested.
+The complete native-tab suite passed on Linux x86_64 with Kitty 0.47.4:
 
-The native-tab follow-up reran the complete 52-test suite on Kitty 0.47.4.
-Both new tab cases plus default/streamed graphics, keyboard/paste/focus and pixel
-resize cases passed on Kitty 0.49.1. Both tab cases and streamed graphics/pixel
-resize cases also passed with 100 ms added SSH RTT on Kitty 0.47.4. Nix checks
-passed; no carrier protocol or Rust CLI change was required. Physical tab-bar
-mouse clicks and desktop rendering remain interactive checks.
+| Checks | Passed |
+| --- | ---: |
+| Rust codec/PTY tests | 16 |
+| Kitty helper, configuration and authorization tests | 14 |
+| SSH/startup regression tests, including two native-tab cases | 13 |
+| Feature-audit tests | 9 |
+| Total | 52 |
 
-The audit also corrected test startup synchronization (atomic publication of the
-controller key, native parser readiness before input injection, and no-reset
-Xvfb displays). Some isolated X11 launches failed before bootstrap and required retry. Those
+Formatting, Clippy, Nix package and Python checks passed. The current packaged
+integration and demo scripts matched the tested source, and the packaged version
+command ran. The preceding graphics audit also checked its packaged binary's
+feature-demo and metadata cases.
+
+The original graphics audit exercised the feature cases on Kitty 0.49.1 across
+the audit and focused reruns, and three geometry/graphics cases with 100 ms added
+SSH RTT. After native tabs were introduced, both new tab cases and the default/
+streamed graphics, keyboard/paste/focus and pixel-resize cases passed on Kitty
+0.49.1. Both tab cases and streamed graphics/pixel-resize cases also passed with
+100 ms added RTT on Kitty 0.47.4. These focused runs do not imply a complete rerun
+of every case on each version/transport combination.
+
+Real desktop delivery, physical tab-bar mouse clicks, a truly separate remote
+filesystem and aarch64 execution were not tested. The
+[historical benchmark records](original-terminal-carrier.md#03-performance-follow-up)
+precede native tabs; the localhost hidden-flood latency target remains unmet.
+
+The audit corrected startup synchronization (atomic publication of the controller
+key, native parser readiness before input injection, and no-reset Xvfb displays).
+Some isolated X11 launches failed before bootstrap and required retry. Those
 infrastructure failures are not counted as passes.
 
 ## Host and policy boundaries
@@ -113,20 +109,16 @@ by the existing scoped authorization callback.
 
 ## Reproduce and inspect interactively
 
+Use the [README verification commands](../README.md#automated-verification) for
+the complete suite and its delayed-transport mode, or run just this audit:
+
 ```sh
-nix develop --command ./scripts/test.sh
 nix develop --command env TERMLAB_TEST_RTT_MS=100 python3 tests/compatibility.py
-./scripts/demo.sh --features
 ```
 
-In the demo's managed session run `termlab-features`. It prints all four PTY
-size fields, shows a generated PNG using the ordinary `icat` command and provides
-commands for a large streamed PNG, animated GIF, clear, and `kitten show-key`.
-Create another session in its own tab, display a different image, switch back
-using both native Kitty tab navigation and termlab shortcuts, resize and change
-font size. Verify image retention, animation and independent clearing. The assets
-and SSH configuration are temporary; only standard-library Python is added to the
-existing demo tools. `nix run path:.#demo -- --features` is equivalent.
+The [guided graphics demo](../README.md#kitty-features-and-graphics) supplies
+temporary images and the basic switching/resize walkthrough. The following
+additional checks establish behavior that the localhost fixture cannot prove.
 
 On an actually separate SSH server, create an image there and run both:
 
