@@ -307,6 +307,10 @@ performance on another server. Physical display refresh was not measured.
 
 ## Deferred persistence follow-up
 
+The deferred [detach analysis](detach-analysis.md) compares suspension, bounded
+output history and hybrid approaches, records their evidence and limitations,
+and lists the investigations needed before selecting an implementation.
+
 The chosen initial policy is to end all sessions on transport/controller loss.
 A later implementation must separately design a durable remote PTY owner,
 authenticated reconnection, session discovery, and how fresh kitty screens recover
