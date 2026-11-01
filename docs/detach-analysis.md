@@ -351,6 +351,7 @@ No persistence strategy or hybrid policy was selected.
 | Reattach with application redraw | Relatively accessible, but application-dependent; not arbitrary restoration |
 | Text/ANSI extraction plus selected metadata | Partial visual recovery, not a complete screen/parser/graphics checkpoint |
 | Full output journal with geometry events | Plausible research path; history growth, replay effects, queries and external resources remain difficult |
+| Compact terminal-state model | Could retain current cells and continuation state without a renderer or full output journal; still requires terminal emulation and an explicit compatibility boundary; see [section 9.1](#91-compact-terminal-state-for-screen-recovery) |
 | Complete native Kitty checkpoint/import | Potentially strong; no supported complete mechanism was established in the inspected baseline |
 | Persistent terminal-state backend elsewhere | A larger architecture/dependency change; not part of the initial no-extra-services direction |
 
@@ -361,6 +362,109 @@ processes. See [text extraction](https://sw.kovidgoyal.net/kitty/rc_protocol/#ge
 and [saved sessions](https://sw.kovidgoyal.net/kitty/sessions/#the-save-as-session-action).
 Graphics can refer to previously transmitted image data, so placement commands
 alone are insufficient; see [image placement](https://sw.kovidgoyal.net/kitty/graphics-protocol/#display-images-on-screen).
+
+### 9.1. Compact terminal state for screen recovery
+
+The research question is whether a small state machine between each application
+PTY and Kitty could condense output into enough state to reconstruct a fresh view.
+**A compact screen model is plausible; a tiny tracker of changed regions alone
+cannot guarantee arbitrary screen recovery.** This is a design inference from
+terminal semantics, not a tested kittyplex implementation.
+
+Terminal interpretation and graphical rendering are separate responsibilities.
+A remote model would not need fonts, GPU drawing or a graphical window. It could
+interpret output into cells and metadata, then generate a repaint for Kitty.
+[libvterm](https://www.leonerd.org.uk/code/libvterm/) demonstrates terminal
+emulation without a particular graphics toolkit or output system; this is evidence
+that the separation is possible, not a dependency recommendation or proof of Kitty
+compatibility.
+
+#### What can be condensed?
+
+| Representation | What it can recover | What it still needs |
+| --- | --- | --- |
+| Sequence framing and a small parser state | Complete UTF-8/control-sequence boundaries for replay | Earlier screen contents and the meaning of commands |
+| Dirty rows or rectangles | Which regions changed relative to a known screen | The contents of those regions; a fresh view needs the unchanged regions too |
+| Dependency-preserving command replay | State reconstructed by executing retained commands | All still-relevant dependencies; determining which commands can be discarded requires semantic interpretation |
+| Cell grid plus terminal metadata | A candidate bounded representation of current text screens and their continuation state | Supported control semantics, serialization and agreement with Kitty |
+| Complete compatible terminal checkpoint | Potentially the strongest continuation guarantee | All relevant parser, mode, screen and graphics state, and a compatible importer |
+
+For example, an editor may draw a document once and subsequently change only its
+status field. Remembering that the status row is dirty cannot reconstruct the
+document. Keeping the last bytes written at each location also requires knowing
+where they took effect: relative cursor movement, scrolling, insertion, erasure
+and mode changes can move or alter earlier contents. A clear-screen command is
+not necessarily a complete reset of terminal state. The
+[xterm control-sequence reference](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+documents these operations, saved state and alternate-screen behavior.
+
+Consequently, removing old output safely is more than recognizing escape-sequence
+boundaries. A dependency-preserving journal may retain arbitrarily old commands;
+there is no established general tiny-state compaction scheme here. Converting
+those dependencies into current cells and metadata is already terminal emulation.
+
+#### A small display model still has continuation state
+
+Repainting the same visible characters is a weaker guarantee than making future
+output and input behave as if the original terminal had survived. A candidate
+text-terminal model would need to account for at least:
+
+- Primary and alternate screen cells, character widths and combining text,
+  attributes, colors, and line-wrap metadata.
+- Current and saved cursors and attributes, scrolling margins, tab stops, active
+  character sets, origin/insert/autowrap modes and pending wrap at the last column.
+- Input-affecting state such as keyboard, mouse and bracketed-paste modes, plus
+  any supported palette, hyperlink and other terminal extensions.
+- Geometry and ordered resize events, and partial UTF-8/control-sequence parser
+  state at the checkpoint boundary.
+
+For fixed geometry and a bounded character/attribute representation, text grids
+scale with screen area rather than the duration of output. Identical attributes
+can be shared and a snapshot compressed. This can be substantially smaller than a
+long journal, but it is not constant-sized state independent of screen contents.
+Scrollback adds a separate retention budget. Arbitrary combining text, control
+strings and extension payloads also need limits before claiming bounded memory.
+Graphics require image data, placements and potentially animation state;
+retaining only visible text or image identifiers cannot reconstruct them.
+
+A deliberately smaller terminal subset could reduce implementation work. Its
+supported semantics and recovery guarantee would have to be explicit. Unsupported
+sequences cannot simply be ignored while claiming exact recovery: their effects
+could invalidate the model. Detecting such uncertainty and defining a fallback
+would be part of a later design. No subset or fallback is selected here.
+
+#### Tracking and reattachment boundaries
+
+The model would normally track output continuously from session creation, even
+while attached. Starting only at detach loses the earlier screen unless a
+sufficient initial checkpoint is available. Kitty's documented text/ANSI/cursor
+extraction does not establish such a complete checkpoint. A persistent local
+Kitty view could instead remain the state owner, but that retains the local
+process dependency and does not solve recovery after losing it.
+
+A proposed recovery sequence is to capture model state at an output position,
+retain the subsequent ordered tail, restore a fresh view, then deliver that tail
+before joining live output. Correctness requires an exact boundary and consistent
+geometry. Partial sequences must be preserved or the checkpoint deferred to a
+suitable parser boundary; ordinary repaint commands are not established as a way
+to import arbitrary internal parser state, saved state or pending wrap. A resize
+on reattachment introduces an additional reflow/application-redraw question.
+
+Terminal replies also need one owner. If both Kitty and a shadow model answer the
+same query, duplicate responses can reach the application. If neither answers
+while detached, an application may wait. Historical queries and side effects must
+not be replayed as new live requests. Answering queries remotely would add another
+part of terminal emulation, beyond retaining a picture.
+
+Finally, a shadow model can disagree with Kitty about Unicode widths, wrapping,
+resizing, modes or extensions. Even a visually successful initial repaint can
+diverge on the next character. Validation must compare subsequent behavior as
+well as the restored screen. A remote model would reconsider the existing
+[no-emulator ownership model](remote-session-architecture.md#1-goal-and-ownership-model);
+it is an architectural alternative, not a small change to opaque-byte forwarding.
+The promising investigation is bounded screen state without a renderer, with
+fidelity measured explicitly. Neither a full Kitty clone nor a limited model has
+been selected or prototyped.
 
 ## 10. Further analysis before selecting an implementation
 
@@ -377,8 +481,9 @@ work. No additional experiments were run when this analysis was archived.
 | 6 | Buffer usefulness and limits | Test logs, partial shell commands, Vim, another full-screen application, incremental status fields, progress bars, colors and output faster than replay |
 | 7 | Retained-view lifecycle | Rebind a new SSH carrier safely; exercise broker/relay failure, destroyed views, offline resize/font changes and gaps beyond retention |
 | 8 | Fresh-view fidelity | Compare redraw, bounded replay and available Kitty export/import facilities against text, modes, graphics and geometry dependencies |
-| 9 | Output backpressure and ordered resumption | Propose output floods exceeding queue/buffer capacity, quiet CPU/file/network work, pipelines and stderr on the same PTY, nonblocking writers with partial writes/EAGAIN, and terminal queries; verify bounded queues, responsive management, workload progress/blocking, pending-reply handling and ordered delivery without loss or duplication on resume |
-| 10 | Workload effects and hybrid policy | Test external timeouts, resource/lock retention, freeze and stop-reading thresholds and whether differing per-session policies are worthwhile |
+| 9 | Compact terminal-state feasibility ([section 9.1](#91-compact-terminal-state-for-screen-recovery)) | Compare restored screens and subsequent behavior against Kitty for incremental status updates, scrolling/insertion/erasure, primary/alternate screens, saved cursors, pending wrap, Unicode, fragmented sequences, resize, queries and graphics; measure retained state under long output and identify unsupported semantics and model divergence |
+| 10 | Output backpressure and ordered resumption | Propose output floods exceeding queue/buffer capacity, quiet CPU/file/network work, pipelines and stderr on the same PTY, nonblocking writers with partial writes/EAGAIN, and terminal queries; verify bounded queues, responsive management, workload progress/blocking, pending-reply handling and ordered delivery without loss or duplication on resume |
+| 11 | Workload effects and hybrid policy | Test external timeouts, resource/lock retention, freeze and stop-reading thresholds and whether differing per-session policies are worthwhile |
 
 Before a later implementation plan, resolve close-tab versus detach versus kill,
 single-writer ownership and takeover, input acknowledgement behavior, buffer
