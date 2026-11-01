@@ -1,7 +1,7 @@
 # kittyplex
 
-> **Experimental proof-of-concept ** Kittyplex is an
-> exploration of a different terminal-multiplexing architecture. 
+> Experimental proof-of-concept. Kittyplex is an exploration of a different
+> terminal-multiplexing architecture. 
 
 ## Introduction
 
@@ -36,7 +36,7 @@ flowchart TB
 ```
 
 With **SSH**, the target account is on another computer. With **run0**, it is
-another account on the same computer. In both cases, Kitty runs as the desktop
+another account on the same computer. In both cases, Kitty runs as the local
 user, and the applications run as the target user. The overview hides the local
 routing processes; the [detailed diagram](#how-it-fits-together) expands them.
 The original shell and the session shells are separate processes.
@@ -46,8 +46,10 @@ The original shell and the session shells are separate processes.
 [tmux](https://github.com/tmux/tmux/wiki/Getting-Started) is a general-purpose
 terminal multiplexer with a client/server architecture. Its server manages the
 programs and their terminal state, and clients can detach and later reattach
-through different terminals. Keeping sessions available across disconnections
-is a central part of that workflow.
+through different terminals. To do this, it acts as a terminal emulator in its
+own right, which in effect creates a stack of terminal emulators between the
+process and the screen. This also means that many of kitty's advanced features
+are not available when using tmux. 
 
 Kittyplex explores a different division of responsibility: manage the programs
 in the target account, but let Kitty itself own and render their terminal
@@ -108,10 +110,27 @@ For the same arrangement without SSH or a user change:
 kittyplex start
 ```
 
-It starts in your current directory. In any group, press **Ctrl-Shift-M**, release
-it, then `c` to create a session, `n`/`p` to switch, or `q` to close the group.
-Kitty's native tab selection also works. The [usage guide](docs/usage.md) explains
-all controls, lifecycle rules and launching independent groups from managed tabs.
+It starts in your current directory.
+
+## Keyboard shortcuts
+
+Press **Ctrl-Shift-M**, release it, then press the action key:
+
+| Key | Action |
+| --- | --- |
+| `c` | Create and select a session |
+| `n` / `p` | Next / previous session |
+| `1`–`9` | Select an existing session by its current position in the group |
+| `q` | Close the entire group and its sessions |
+
+Escape cancels management mode. Pressing **Ctrl-Shift-M** twice sends one literal
+Ctrl-Shift-M to the application. Shortcuts apply only inside managed views;
+ordinary Enter/Ctrl-M remains application input. Kitty's native tab selection
+also works. Numbered shortcuts follow session creation order; reordering Kitty
+tabs does not change their numbering.
+
+See the [usage guide](docs/usage.md#controls-and-lifecycle) for complete behavior
+and prefix customization.
 
 ## How it fits together
 
