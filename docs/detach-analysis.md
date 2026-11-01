@@ -33,8 +33,8 @@ has exited. Two distinct reattachment cases must be specified:
   screens with some defined recovery mechanism.
 
 Survival of the remote session server's own crash or a server reboot is a further
-problem, outside ordinary live-daemon detach/reattach. Neither suspension nor a
-recent-output buffer provides process checkpoint/restore.
+problem, outside ordinary live-daemon detach/reattach. None of suspension,
+recent-output history or output backpressure provides process checkpoint/restore.
 
 ## 2. Evidence and confidence
 
@@ -44,9 +44,9 @@ experiment, and proposed behavior. No complete persistence prototype was built.
 | Evidence | What it establishes | What it does not establish |
 | --- | --- | --- |
 | Current source inspection | The remote controller owns application PTY masters; dropping sessions performs hangup/reaping cleanup; carrier/broker loss currently closes local views | That existing lifecycle code can already detach safely |
-| Current relay credit handling | Credits follow writes into the local terminal endpoint | A Kitty parser checkpoint or rendered-frame acknowledgement |
+| Current delivery-credit handling | The controller gates application-PTY reads on available credit; the relay returns credit after writes into the local terminal endpoint | Safe detach, pending-data preservation across attachment loss, a Kitty parser checkpoint or rendered-frame acknowledgement |
 | Small PTY suspension experiment during the discussion | A known child was confirmed stopped, generated no new output during the observation after draining, retained its PTY geometry, and resumed output with the same PID | Whole-workspace freezing, nonempty-backlog recovery, SSH disconnect handling, or display recovery |
-| Linux signal and freezer documentation | Mechanisms and their limitations, discussed below | Their availability or correctness for a particular deployment/workload |
+| Linux signal, freezer, terminal and write documentation | Mechanisms and their limitations, discussed below | Their availability or correctness for a particular deployment/workload |
 | Kitty API/source inspection against the implementation baseline | Text/format/cursor extraction and window launch metadata exist; no complete supported screen/parser/graphics checkpoint was established | That no future or private Kitty implementation could provide one |
 
 The small PTY trial had no pending bytes in its post-stop drain. It must not be
@@ -58,7 +58,7 @@ on 0.49.1; upstream documentation links can evolve.
 
 ## 3. Shared foundation: persistent owner, temporary attachment
 
-Both main approaches require separating responsibilities currently combined in
+All three approaches require separating responsibilities currently combined in
 the remote controller:
 
 ```text
@@ -209,40 +209,111 @@ position, not the entire recent buffer. If that range is still available, existi
 Kitty state supplies the older context. If it was evicted, recognize a continuity
 failure and apply an explicitly limited recovery policy.
 
-## 6. Comparison
+## 6. Option C: stop consuming terminal output while detached
 
-Complexity depends on the promised guarantee. A single-process stop and a plain
-text ring buffer are both easy demonstrations; neither proves a reliable general
-reattachment feature.
+This supports **keep running until terminal output applies backpressure**. The
+persistent owner would keep application PTY masters open but stop reading them
+while detached, either immediately or after a bounded buffer fills. This is a
+proposal inferred from existing credit handling, not tested detach behavior.
 
-| Aspect | Suspend while detached | Keep running with limited history |
-| --- | --- | --- |
-| Persistent PTY owner | Required | Required |
-| Prototype complexity | Low for known process targets | Low for ordinary text output |
-| Robust implementation work | Containment, freeze completion, draining and resume semantics | Retention, replay isolation, delivery offsets and gap handling |
-| Server setup | Strong freezing may require delegated cgroups | Buffering itself needs no special kernel setup |
-| Detached progress | Workloads pause | Workloads can continue, subject to input/query/resource waits |
-| CPU/resources | Application CPU largely stops; memory and resources remain | Normal workload resource use plus bounded history storage |
-| Long disconnection | Little new output after confirmed freeze | Important history becomes more likely to be evicted |
-| External connections | Peers may time out while application execution is stopped | Applications can continue servicing peers |
-| User expectation | Pause and resume a workspace | Closer to leaving work running in tmux |
-| No-emulator constraint | Compatible with process persistence | Compatible with byte retention; semantic replay policies require further design |
+### Terminal flow control versus stopping PTY reads
 
-| Reattachment case | Suspension | Limited history |
-| --- | --- | --- |
-| Retained Kitty views, intentional detach | Promising: retain display and drain a finite tail | Stronger recovery if every missing byte remains available |
-| Retained views, unexpected loss | Still needs failure detection and buffered traffic | Can recover missing ranges within the retention window |
-| Fresh Kitty, recent shell/log output | Little display-recovery help by itself | Often useful context |
-| Fresh Kitty, incremental full-screen application | Old display is still missing | May reconstruct fragments only |
-| Fresh Kitty, arbitrary modes and graphics | Needs an additional state mechanism | Dependencies may lie outside retained history |
-| Daemon crash or host reboot | Not solved | Not solved |
+Ctrl-S normally requests an output stop and Ctrl-Q restarts output when the
+terminal's `IXON` setting and configured STOP/START characters permit it.
+Applications can disable or change these settings; `IXANY` can also allow other
+input to restart output. Injecting Ctrl-S is therefore not a reliable detach
+protocol. Programmatically, `tcflow(fd, TCOOFF)` suspends terminal output and
+`tcflow(fd, TCOON)` restarts it. These control output transmission at the relevant
+terminal; they do not suspend processes. See Linux
+[terminal settings](https://man7.org/linux/man-pages/man3/termios.3.html) and
+[tcflow](https://man7.org/linux/man-pages/man3/tcflow.3.html).
+
+Stopping reads from an application PTY master is a different mechanism: it leaves
+terminal flow-control settings alone and lets unread output accumulate until
+kernel queues exert backpressure. Output already readable at the master is not
+removed by suspending terminal output. Continuing to read and discard bytes would
+lose continuity. The relevant endpoint is the application PTY, not the shared SSH
+carrier, whose management traffic must remain responsive. See the Linux
+[PTY interface](https://man7.org/linux/man-pages/man7/pty.7.html).
+
+### Natural extension of delivery-credit backpressure
+
+In the inspected controller, application-PTY reads require positive delivery
+credit and room in the message queue. The relay returns credit after writing
+bytes into the local terminal endpoint. Extending that gate with attachment state
+or detached-buffer capacity is a natural candidate: stop consuming output without
+closing the PTY, while continuing to service management IPC, attachment requests,
+termination and unrelated sessions. It does not require an application-aware
+suspension signal or delegated cgroup.
+
+This still requires the persistent owner and all attachment lifecycle changes in
+section 3. Credit exhaustion alone does not preserve the current workspace after
+transport loss. Queued bytes in the PTY, server, transport and local relay must be
+accounted for and preserved across attachment changes. A delivery boundary must
+identify which bytes reached a retained view and which remain pending; terminal
+endpoint writes are not rendered-frame acknowledgements. Reattachment must deliver
+the pending range in order before joining newly read output, without omissions,
+duplicates or flushing queues. Unexpected loss and partial delivery remain design
+problems, not guarantees supplied by the existing credit counters.
+
+### Workload behavior and limits
+
+- Processes continue executing until a terminal write blocks as available queue
+  space runs out. Quiet computation, file output and network activity may continue
+  indefinitely; this is not a workspace freeze or a CPU-saving guarantee.
+- Stderr shares this backpressure when it refers to the same terminal. Redirected
+  output follows its own destination. A blocked terminal consumer in a pipeline
+  can eventually block upstream pipe writers, while independent jobs keep running.
+- Nonblocking terminal writers may receive `EAGAIN` instead of waiting, and writes
+  may be partial. Applications can retry, drop output or fail according to their
+  own handling. See Linux [write semantics](https://man7.org/linux/man-pages/man2/write.2.html).
+- A process blocked in terminal output may stop servicing peers, retaining locks
+  and resources while external deadlines expire. The effect depends on where it
+  writes, rather than a confirmed stop of every process.
+- Terminal queries can remain queued or unanswered while detached. Input and reply
+  ownership still need explicit rules; backpressure supplies no terminal replies.
+
+Preserving pending bytes can protect continuity for retained Kitty views if every
+missing byte survives. Fresh-view screen recovery remains unresolved: unread
+output does not recreate the earlier screen, modes, parser state or graphics.
+No flow-control backend, buffer capacity or detach/resume policy was selected,
+and neither terminal flow control nor detached PTY-read gating was experimented
+with for this analysis.
+
+## 7. Comparison
+
+Complexity depends on the promised guarantee. A known-process stop, a text ring
+buffer and a PTY-read gate are simple demonstrations; none proves a reliable
+general reattachment feature.
+
+| Aspect | Suspend while detached | Keep running with limited history | Output backpressure |
+| --- | --- | --- | --- |
+| Persistent PTY owner | Required | Required | Required |
+| Prototype complexity | Low for known process targets | Low for ordinary text output | Low for gating PTY reads |
+| Robust implementation work | Containment, freeze completion, draining and resume semantics | Retention, replay isolation, delivery offsets and gap handling | Pending-data preservation, delivery boundaries, management responsiveness and ordered resume |
+| Server setup | Strong freezing may require delegated cgroups | Buffering itself needs no special kernel setup | Read gating needs no special kernel setup |
+| Detached progress | Workloads pause | Workloads can continue, subject to input/query/resource waits | Continues until terminal writes block; quiet work may continue |
+| CPU/resources | Application CPU largely stops; memory and resources remain | Normal workload resource use plus bounded history storage | CPU may continue; resources and bounded pending output remain |
+| Long disconnection | Little new output after confirmed freeze | Important history becomes more likely to be evicted | Writers may remain blocked; preserve pending bytes rather than evict them |
+| External connections | Peers may time out while application execution is stopped | Applications can continue servicing peers | Can continue until blocked output prevents servicing peers |
+| User expectation | Pause and resume a workspace | Closer to leaving work running in tmux | Run until output capacity is exhausted, then wait for a reader |
+| No-emulator constraint | Compatible with process persistence | Compatible with byte retention; semantic replay policies require further design | Compatible with PTY backpressure; no screen recovery supplied |
+
+| Reattachment case | Suspension | Limited history | Output backpressure |
+| --- | --- | --- | --- |
+| Retained Kitty views, intentional detach | Promising: retain display and drain a finite tail | Stronger recovery if every missing byte remains available | Promising if all pending bytes survive and resume in order |
+| Retained views, unexpected loss | Still needs failure detection and buffered traffic | Can recover missing ranges within the retention window | Still needs failure detection, delivery boundaries and preservation of in-flight bytes |
+| Fresh Kitty, recent shell/log output | Little display-recovery help by itself | Often useful context | Pending output may offer context, but no earlier history is implied |
+| Fresh Kitty, incremental full-screen application | Old display is still missing | May reconstruct fragments only | Old display is still missing |
+| Fresh Kitty, arbitrary modes and graphics | Needs an additional state mechanism | Dependencies may lie outside retained history | Needs an additional state mechanism |
+| Daemon crash or host reboot | Not solved | Not solved | Not solved |
 
 These are feasibility judgments, not measured implementation estimates. Retaining
 views also requires investigating offline resize/font changes and the lifetimes
 of the broker, relays, local PTYs and parser state. Keeping application PIDs alive
 must never be described as equivalent to complete terminal restoration.
 
-## 7. How the approaches can complement each other
+## 8. How the approaches can complement each other
 
 1. **Suspend plus an in-flight buffer.** Even a pause design needs space for
    already queued output and data produced before failure detection. Suspension
@@ -251,21 +322,29 @@ must never be described as equivalent to complete terminal restoration.
    short disconnections, then freeze as the undelivered range approaches capacity.
    Reserve headroom for freeze latency and in-flight data. This can protect a
    retained view's continuity; it does not turn a tail into a fresh-screen snapshot.
-3. **Brief suspension during attachment.** Pause producers while establishing a
+3. **Bounded buffering, then stop PTY reads.** Allow short disconnections to
+   consume a bounded pending-output budget, then apply backpressure before any
+   missing bytes are evicted. Preserve queued and in-flight bytes and reserve
+   capacity for them. Resume delivery in order as a new attachment consumes the
+   backlog. Quiet work can continue; this does not promise a paused workspace or
+   fresh-screen recovery.
+4. **Brief suspension during attachment.** Pause producers while establishing a
    replay/live boundary, then resume. This can simplify synchronization but does
    not repair missing history or remove replay side effects.
-4. **Per-session policies.** A build could continue with bounded history while an
+5. **Per-session policies.** A build could continue with bounded history while an
    editor pauses with its view retained. This adds configuration, containment and
    test combinations and was not selected as a requirement.
-5. **Retained views plus missing-byte replay.** Preserve Kitty's existing state,
-   send only the missing range, and optionally pause before that range outgrows
-   storage. This is a promising continuity design, not a fresh-client guarantee.
+6. **Retained views plus missing-byte replay.** Preserve Kitty's existing state,
+   send only the missing range, and optionally suspend or stop PTY reads before
+   that range outgrows storage. This is a promising continuity design, not a
+   fresh-client guarantee.
 
-The discussion identified two useful initial targets without choosing one:
-pause-and-detach with retained views for stronger workspace continuity, or
-bounded history for ongoing work with explicitly approximate fresh-view recovery.
+Three candidate targets remain open: pause-and-detach with retained views,
+bounded history for ongoing work with explicitly approximate fresh-view recovery,
+and output backpressure with preserved pending data for retained-view continuity.
+No persistence strategy or hybrid policy was selected.
 
-## 8. Fresh-client recovery alternatives
+## 9. Fresh-client recovery alternatives
 
 | Option | Assessment |
 | --- | --- |
@@ -279,18 +358,18 @@ Kitty's documented text extraction includes formatting and optional cursor data;
 it is not documented as a full checkpoint. Saved Kitty sessions recreate launch
 arrangements and restart commands, rather than preserving the same remote
 processes. See [text extraction](https://sw.kovidgoyal.net/kitty/rc_protocol/#get-text)
-and [saved sessions](https://sw.kovidgoyal.net/kitty/sessions/#the-save_as_session-action).
+and [saved sessions](https://sw.kovidgoyal.net/kitty/sessions/#the-save-as-session-action).
 Graphics can refer to previously transmitted image data, so placement commands
 alone are insufficient; see [image placement](https://sw.kovidgoyal.net/kitty/graphics-protocol/#display-images-on-screen).
 
-## 9. Further analysis before selecting an implementation
+## 10. Further analysis before selecting an implementation
 
 The order below is a proposed investigation order, not authorized implementation
 work. No additional experiments were run when this analysis was archived.
 
 | Priority | Question / experiment | Required evidence |
 | --- | --- | --- |
-| 1 | Define the intended guarantee | Retained versus fresh Kitty, pause versus continued execution, fidelity expectations, and supported hosts/workloads are explicit |
+| 1 | Define the intended guarantee | Retained versus fresh Kitty, pause versus continued execution versus output-limited progress, fidelity expectations, and supported hosts/workloads are explicit |
 | 2 | Persistent server and deployment | Same PIDs and PTYs survive attachment exit/logout on target hosts; discovery, authorization and explicit termination work |
 | 3 | Workspace containment and freezing | Test pipelines, background jobs, nested shells, debugger, concurrent forks and existing stopped jobs; incomplete freezes have a defined outcome |
 | 4 | Delivery/resume boundaries | Detach during floods, partial UTF-8/control sequences and image transfer; demonstrate no duplication or omission where continuity is promised |
@@ -298,12 +377,13 @@ work. No additional experiments were run when this analysis was archived.
 | 6 | Buffer usefulness and limits | Test logs, partial shell commands, Vim, another full-screen application, incremental status fields, progress bars, colors and output faster than replay |
 | 7 | Retained-view lifecycle | Rebind a new SSH carrier safely; exercise broker/relay failure, destroyed views, offline resize/font changes and gaps beyond retention |
 | 8 | Fresh-view fidelity | Compare redraw, bounded replay and available Kitty export/import facilities against text, modes, graphics and geometry dependencies |
-| 9 | Workload effects and hybrid policy | Test external timeouts, resource/lock retention, freeze thresholds and whether differing per-session policies are worthwhile |
+| 9 | Output backpressure and ordered resumption | Propose output floods exceeding queue/buffer capacity, quiet CPU/file/network work, pipelines and stderr on the same PTY, nonblocking writers with partial writes/EAGAIN, and terminal queries; verify bounded queues, responsive management, workload progress/blocking, pending-reply handling and ordered delivery without loss or duplication on resume |
+| 10 | Workload effects and hybrid policy | Test external timeouts, resource/lock retention, freeze and stop-reading thresholds and whether differing per-session policies are worthwhile |
 
 Before a later implementation plan, resolve close-tab versus detach versus kill,
 single-writer ownership and takeover, input acknowledgement behavior, buffer
-overflow/gap policy, freeze-failure deadlines, capability/version negotiation,
-and how users discover and recover an unattended paused workspace. Do not invent
+overflow/gap policy, stop-reading/resume thresholds, freeze-failure deadlines,
+capability/version negotiation, and how users discover and recover an unattended paused workspace. Do not invent
 these policies by silently changing the current lifecycle.
 
 Useful existing code entry points are the

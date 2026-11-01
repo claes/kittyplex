@@ -65,8 +65,9 @@ also remotely, such as the graphics protocol.
 ## Main use cases
 
 These examples assume the [local Kitty integration](#install) is configured and
-kittyplex is installed where it will run. To explore it without changing your
-installed configuration, start with the [isolated demo](#try-the-proof-of-concept).
+kittyplex is installed where it will run, both in the local and remote location.
+To explore it without changing your installed configuration, start with the
+[isolated demo](#try-the-proof-of-concept).
 
 ### Work on a remote server through one SSH connection
 
