@@ -242,6 +242,41 @@ class KittySSHCase(unittest.TestCase):
 
 
 class CarrierTests(KittySSHCase):
+    def test_startup_instructions_stay_in_carrier_and_appear_once(self):
+        carrier = next(w["id"] for w in self.windows()
+                       if "kittyplex_session" not in w.get("user_vars", {}))
+        instructions = [
+            "kittyplex keeps this connection open; shells run in other Kitty tabs.",
+            "Keep this tab open. Select a session tab to work.",
+            "In a session tab, with default bindings, press Ctrl-Shift-M,",
+            "release it, then press:",
+            "  c       Create and select a session",
+            "  n / p   Next / previous session",
+            "  1-9     Select an existing session by position",
+            "  q       Close the group and its sessions",
+            "Escape cancels; repeat the prefix to send it. Kitty tab selection works too.",
+        ]
+        self.wait_text(carrier, instructions[-1])
+        text = self.text(carrier)
+        start = text.index(instructions[0])
+        end = text.index(instructions[-1]) + len(instructions[-1])
+        lines = text[start:end].splitlines()
+        self.assertEqual(lines, instructions)
+        self.assertLessEqual(len(lines), 10)
+
+        second = self.create(self.first)
+        for line in instructions:
+            self.assertEqual(self.text(carrier).count(line), 1)
+            for view in (self.first, second):
+                self.assertNotIn(line, self.text(view))
+
+        self.manage(second, "quit")
+        self.wait_for(lambda: not self.views())
+        self.wait_text(carrier, "Back in the original SSH shell")
+        self.wait_text(carrier, "remote session carrier")
+        self.send(carrier, "printf 'STARTUP_%s\\n' RESTORED\n")
+        self.wait_text(carrier, "STARTUP_RESTORED")
+
     def test_native_tabs_titles_navigation_and_creation_order(self):
         first = next(w for w in self.views() if w["id"] == self.first)
         carrier = next(w for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))

@@ -9,6 +9,18 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+const STARTUP_INSTRUCTIONS: &str = concat!(
+    "kittyplex keeps this connection open; shells run in other Kitty tabs.\r\n",
+    "Keep this tab open. Select a session tab to work.\r\n",
+    "In a session tab, with default bindings, press Ctrl-Shift-M,\r\n",
+    "release it, then press:\r\n",
+    "  c       Create and select a session\r\n",
+    "  n / p   Next / previous session\r\n",
+    "  1-9     Select an existing session by position\r\n",
+    "  q       Close the group and its sessions\r\n",
+    "Escape cancels; repeat the prefix to send it. Kitty tab selection works too.\r\n",
+);
+
 struct Managed {
     session: Session,
     credit: usize,
@@ -353,6 +365,8 @@ impl Remote {
                 if !self.ready {
                     self.ready = true;
                     self.create()?;
+                    // The carrier is raw: use CRLF and preserve queued frame ordering.
+                    self.wire.extend(STARTUP_INSTRUCTIONS.as_bytes());
                 }
             }
             "view_ready" => {
