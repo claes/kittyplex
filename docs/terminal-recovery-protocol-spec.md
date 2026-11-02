@@ -55,7 +55,8 @@ stateDiagram-v2
   survive, and background computation may continue while drawing is paused.
 
 The enable response establishes the first status; subsequent state messages
-report availability changes. Preparing to detach and restoring are operations,
+report availability changes. A restore request also establishes attached status,
+without requiring a preceding attached notification. Preparing to detach and restoring are operations,
 not additional display states. Track participation, the pending operation and its
 transaction number separately. Preparation leaves the display attached until it
 actually disengages. Restoration, including an unsuccessful attempt, leaves it
@@ -112,7 +113,7 @@ protocol, not a payload inside Restore Display.
 | Key | Value |
 | --- | --- |
 | `action` | Required operation name from section 3 |
-| `version` | Protocol version; `0` in the discovery response |
+| `version` | Requested protocol version; `0` in the enable request |
 | `id` | Transaction number, assigned by the controller |
 | `status` | Operation result: `accepted`, `ready` or `unavailable`, as specified below |
 | `display` | Display status: `attached` or `detached` |
@@ -147,9 +148,7 @@ request except restoration start/completion and unavailable notifications.
 
 | Direction | Fields | Meaning |
 | --- | --- | --- |
-| A -> C | `action=query` | Does this controller support Restore Display? |
-| C -> A | `action=query,version=0` | It supports v0 |
-| A -> C | `action=enable` | Enable participation for the current interface |
+| A -> C | `action=enable,version=0` | Enable v0 participation for the current interface if supported |
 | C -> A | `action=enable,status=accepted,display=detached` or `action=enable,status=accepted,display=attached` | Accepted; includes current display state |
 | C -> A | `action=enable,status=unavailable` | Participation unavailable; no notifications enabled |
 | A -> C | `action=disable` | Disable participation before shutdown or another reader takes over |
@@ -158,15 +157,15 @@ request except restoration start/completion and unavailable notifications.
 | C -> A | `action=state,display=detached` or `action=state,display=attached` | State response or unsolicited state notification |
 | C -> A | `action=prepare,id=N` | Prepare to disengage the display |
 | A -> C | `action=prepare,id=N,status=ready` | Ready: earlier output flushed and new drawing paused |
-| C -> A | `action=restore,id=N` | Restore the available display |
+| C -> A | `action=restore,id=N` | Display is attached; restore it |
 | A -> C | `action=begin,id=N` | Start of restoration output; earlier output is obsolete |
 | A -> C | `action=complete,id=N` | Restoration output complete and flushed |
 | A -> C | `action=unavailable,id=N` | Cannot complete this disengagement/restoration |
 
 The controller never sends unsolicited input to a participant that has not
-enabled the protocol. Discovery is application-initiated; a discovery response
-alone does not enable notifications. The application installs its decoder and
-prevents terminal echo/line-discipline transformations before querying/enabling.
+enabled the protocol. The application initiates a versioned enable request,
+which combines support discovery and opt-in. It installs its decoder and prevents
+terminal echo/line-discipline transformations before enabling.
 An attached application draws normally after enable acceptance; a detached one
 waits for a restore request. Unsupported controllers need not respond; absence
 of a response means support was not established, not that restoration is impossible.
@@ -193,25 +192,22 @@ no other IDs, tokens, global attachment generations or per-message counters.
 sequenceDiagram
     participant A as Application
     participant C as Controller
-    A->>C: action=query
-    alt Supports v0
-        C->>A: action=query,version=0
-        A->>C: action=enable
-        alt Display available
-            C->>A: action=enable,status=accepted,display=attached
-            Note over A: Initial becomes attached, draw initial interface normally
-        else No display available
-            C->>A: action=enable,status=accepted,display=detached
-            Note over A: Initial becomes detached, wait for restore
-        end
-    else Unsupported or no response
-        Note over A: Continue ordinary operation without participation
-    end
+    A->>C: action=enable,version=0
+    C->>A: action=enable,status=accepted,display=attached
 ```
 
-The controller must not send state/events before acceptance. The application does
-not enable an unknown version. An enable refusal leaves it disabled. A repeated
-enable while already enabled is refused and does not replace the active interface.
+The application requests the version it implements; acceptance confirms that
+version without a separate discovery exchange or final acknowledgement. The
+controller must not accept an unsupported version. It may refuse with
+`action=enable,status=unavailable`; an unsupported controller may remain silent.
+Refusal or silence leaves support unestablished and ordinary operation available.
+
+The accepted response reports `display=attached` or `display=detached`. The former
+allows normal initial drawing; the latter requires waiting for a restore request.
+The controller serializes acceptance before any subsequent protocol events on
+the same input stream, so availability changes after acceptance arrive in order.
+No new participation is enabled by a refused request. A repeated enable while
+already enabled is refused and does not replace the active interface.
 State queries are answered only while enabled. Unknown/disabled input is not a
 place for controller probing.
 
@@ -228,17 +224,17 @@ that uncertainty. The exerciser explicitly tests a silent unsupported controller
 sequenceDiagram
     participant A as Application
     participant C as Controller
-    participant D as Display
-    Note over C: Gate new user input
     C->>A: action=prepare,id=7
-    Note over A,C: Display status remains attached during preparation
-    Note over A: Reach safe point, flush earlier writes, pause drawing
     A->>C: action=prepare,id=7,status=ready
-    C->>D: Finish ordered delivery of earlier output
-    Note over C,D: Disengage display
+    Note over C: Finish earlier output delivery and detach
     C->>A: action=state,display=detached
-    Note over A: Computation may continue, display output stays paused
 ```
+
+The controller gates new user input before requesting preparation. The application
+reaches a safe point, flushes earlier output and pauses drawing before replying
+ready. Display status stays attached until actual disengagement, reported by the
+final detached notification. The controller finishes ordered delivery of earlier
+output before detaching.
 
 Readiness is an output barrier, not a request to freeze the process. After it,
 only protocol output is permitted until restoration. Pending input and application
@@ -255,25 +251,24 @@ have paused drawing.
 sequenceDiagram
     participant A as Application
     participant C as Controller
-    participant D as Fresh display
-    Note over C,D: Connect display and update PTY dimensions
-    C->>A: action=state,display=attached
-    Note over A,C: Display status is attached, input remains gated
     C->>A: action=restore,id=8
-    Note over A: Stop obsolete writes, flush, finish partial control strings
     A->>C: action=begin,id=8
-    A->>C: Initialize modes, transmit graphics, draw current interface
-    C->>D: Forward restoration output
+    A->>C: Terminal initialization and current interface
     A->>C: action=complete,id=8
-    Note over C,D: Finish ordered delivery, allow normal interaction
 ```
 
-A state notification that the display is attached does not itself resume drawing.
-The application waits for restore. Start and completion markers share the same
-serialized output path as drawing. The controller suppresses obsolete presentation
+Before requesting restore, the controller connects the display, updates actual
+PTY dimensions and gates user input. The restore request itself establishes
+attached status; no separate attached notification is required. Attached status
+alone, including a standalone state notification, does not resume drawing or
+release user input. The application waits for restore, then stops obsolete writes,
+flushes earlier output and finishes partial control strings before emitting begin.
+
+Start and completion markers share the same serialized output path as drawing. The controller suppresses obsolete presentation
 output to the replacement until the matching start marker, then forwards the
 restoration output in order. The application emits completion only after flushing
-all initialization and drawing output, never merely scheduling it.
+all initialization and drawing output, never merely scheduling it. The controller
+finishes ordered delivery before allowing normal interaction.
 
 ```text
 Application output:   obsolete bytes | action=begin,id=8 | initialization + drawing | action=complete,id=8 | live output
@@ -282,8 +277,8 @@ Replacement display:     suppressed  |     consumed      |          forwarded   
 
 The application may report unavailable before or after the start marker using
 `action=unavailable,id=8`. A failed or timed-out attempt leaves restoration visibly
-incomplete and user input gated. A retry gets a new transaction number; only its start marker
-reopens restoration output. Old completion messages cannot release input.
+incomplete and user input gated. A retry gets a new transaction number; only its
+start marker reopens restoration output. Old completion messages cannot release input.
 
 Restore means the same operation for an empty or previously used display:
 reestablish owned modes/resources and redraw. Restoring saved stacks must include
@@ -302,18 +297,15 @@ frame. After reattachment, test subsequent input and drawing, not just a picture
 sequenceDiagram
     participant A as Application
     participant C as Controller
-    participant D as Display
-    Note over C,D: Display disappears without preparation
+    Note over C: Display is lost
     C->>A: action=state,display=detached
-    Note over A: Stop display output, cancel unavailable terminal queries
-    Note over C: Retain or discard pending output according to declared policy
-    Note over C,D: Replacement becomes available
-    C->>A: action=state,display=attached
-    C->>A: action=restore,id=9
-    A->>C: action=begin,id=9
-    A->>C: Initialization and current interface
-    A->>C: action=complete,id=9
+    Note over A: Pause drawing and reconcile outstanding terminal queries
+    Note over A,C: When a display becomes available, use the restore exchange
 ```
+
+When a display becomes available, use the [restore exchange](#6-restore-display)
+without a preceding attached notification. Pending output is retained or discarded
+according to the controller's declared policy.
 
 An application must support restoration without an earlier preparation handshake.
 Detached notification causes it to stop new display queries/effects and drawing
@@ -338,27 +330,26 @@ be mistaken for successful ordinary resize.
 sequenceDiagram
     participant P as Parent application
     participant C as Controller
-    participant K as Child application
     P->>C: action=disable
-    Note over C: Cancel transaction, stop new events, serialize earlier input
     C->>P: action=disable,status=accepted
-    Note over P: Participation ends, last-known display status is retained
-    Note over P,K: Parent consumes acknowledgement, then gives input to child
-    Note over K: Child opts in separately or remains unsupported
-    Note over P,K: Child exits and parent owns input again
-    P->>C: action=query
-    C->>P: action=query,version=0
-    P->>C: action=enable
+    Note over P: Child runs, then parent resumes
+    P->>C: action=enable,version=0
     C->>P: action=enable,status=accepted,display=attached
-    Note over P: Initialize/redraw parent interface
 ```
+
+Before acknowledging disable, the controller cancels the pending transaction,
+stops new events and serializes earlier input. The parent consumes the
+acknowledgement before handing input to a child. The child may opt in separately
+or remain unsupported. When the parent resumes, it uses the same versioned enable
+exchange as startup, drawing normally if attached or waiting for restore if
+detached. Participation ends on disable; last-known display status is retained.
 
 Disable is idempotent: the controller acknowledges it even if participation has
 already ended. This responds to an application request rather than notifying an
 unknown reader. Disable acknowledgement is the last protocol input for that
-participation. The
-application keeps decoding through it, discards cancelled transaction events,
-and drains/reconciles earlier terminal replies before transferring input. Normal
+participation. The application keeps decoding through it, discards cancelled
+transaction events, and drains/reconciles earlier terminal replies before
+transferring input. Normal
 shutdown uses the same disable exchange; no separate goodbye operation is needed.
 Applications can start or shut down while detached: enable reports
 `display=detached`, and disable still works without a display.
@@ -394,9 +385,7 @@ notifications and other one-time effects are not part of restoration.
 Literal examples, with explanatory escape notation:
 
 ```text
-Application -> Controller: \x1bP@restore-display;action=query\x1b\\
-Controller -> Application: \x1bP@restore-display;action=query,version=0\x1b\\
-Application -> Controller: \x1bP@restore-display;action=enable\x1b\\
+Application -> Controller: \x1bP@restore-display;action=enable,version=0\x1b\\
 Controller -> Application: \x1bP@restore-display;action=enable,status=accepted,display=attached\x1b\\
 Controller -> Application: \x1bP@restore-display;action=restore,id=12\x1b\\
 Application -> Controller: \x1bP@restore-display;action=begin,id=12\x1b\\

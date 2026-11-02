@@ -23,8 +23,8 @@ prepare_disengagement, restore_display, disable and re-enable after child return
 Completion means output flushed, not a render merely scheduled.
 
 Protocol support must be opt-in, and ordinary operation without a supporting
-controller must remain usable. Invoking an experimental demo enables v0 discovery
-by default; --protocol=off emits no protocol frames. A demo advertises the single
+controller must remain usable. Invoking an experimental demo attempts versioned
+v0 enablement by default; --protocol=off emits no protocol frames. A demo advertises the single
 Restore Display promise, not a framework name or per-feature coverage list.
 Features enabled in the interface must all be restored or the request refused.
 
@@ -36,12 +36,13 @@ still service restoration. Use a safe UI execution point and a serialized drawin
 path, never arbitrary concurrent curses calls or asynchronous signal-handler
 rendering. Background activity changes the model, not terminal output directly.
 
-After a restore request, stop obsolete rendering, flush earlier output, emit the
+A restore request establishes attached display status without a separate attached
+notification. After it, stop obsolete rendering, flush earlier output, emit the
 matching start marker, reestablish modes/resources, draw the interface, flush and
 emit completion. Refusal uses the unavailable action. No protocol input is a
 redraw keybinding. On child handoff, consume disable acknowledgement before giving
-input away; on return discover/enable again. Resource IDs and stored parent
-baselines must be application-owned and reconstructable.
+input away; on return send the versioned enable request again. Resource IDs and
+stored parent baselines must be application-owned and reconstructable.
 
 The controller does not maintain an emulator or replay the old interface to make
 the demo pass. The application may reuse its framework's existing model/cells.
@@ -317,7 +318,7 @@ control client.
 
 | ctl action | Behavior |
 | --- | --- |
-| `state` | Show controller state and query the enabled application when available |
+| `state` | Show controller display status, participation and pending operation |
 | `detach [--retain-view]` | Request preparation, wait for readiness, then disconnect; default destroys the view |
 | `lose-display` | Destroy/disconnect without preparation |
 | `restore` | Request full display restoration and wait for start/completion or unavailability |
@@ -342,10 +343,12 @@ the user's Kitty configuration or production authorization. Test-owned probes ma
 inspect screen text, image data/placements and input behavior. Resource presence
 alone does not prove composition or a rendered frame.
 
-Local defaults: discovery wait 1000 ms, control transaction deadline 5000 ms and
-display-client failure-detection budget 2000 ms. Start accepts corresponding
+Local defaults: versioned enable response wait 1000 ms, control transaction
+deadline 5000 ms and display-client failure-detection budget 2000 ms. Start accepts corresponding
 --discovery-timeout-ms, --request-timeout-ms and --display-loss-timeout-ms options.
-These are exerciser policy, never wire fields. A deadline reports failure; no
+The existing --discovery-timeout-ms name controls the combined discovery/enable
+response wait, not a separate discovery exchange. These are exerciser policy,
+never wire fields. A deadline reports failure; no
 automatic key/signal injection, process restart or termination follows. After
 uncertain preparation, restore before releasing input. During preparation and
 restoration, visibly reject user input rather than queue it for later execution.
@@ -432,9 +435,10 @@ Run a shared test matrix, not just screenshots:
 | Case | Evidence |
 | --- | --- |
 | `codec.frames` | All frame splits, adjacent/unknown strings, size bound, cancellation and resynchronization |
-| `discovery.support` | Supported, disabled, incompatible and silent controllers; no notifications before acceptance |
-| `lifecycle.detached-start` | Startup/shutdown and state query without a display |
-| `restore.fresh-static` | No update tick; same process/model; new emulator; matching barriers; next edit correct |
+| `discovery.support` | Two-message versioned enable; supported, disabled, incompatible and silent controllers; unsupported versions never enable; acceptance precedes events |
+| `lifecycle.detached-start` | Enable acceptance reports detached; wait for restore; shutdown and state query work without a display |
+| `lifecycle.graceful-detach` | Prepare, ready and actual detached notification preserve the output boundary |
+| `restore.fresh-static` | Restore establishes attached without a preceding state message; matching begin/complete markers; no update tick; same process/model; new emulator; next edit correct |
 | `restore.contexts` | Editing, modal, search/completion without changing interaction merely to restore |
 | `restore.graphics` | Current B pixels/placements restored into a new emulator, not old image replay |
 | `restore.resize` | Same/changed cell and pixel geometry, too-small state and subsequent correct behavior |
@@ -456,7 +460,7 @@ third-party application pass. Pin test environments and distinguish inspected
 APIs from observed behavior.
 
 Each guide must show another developer how to run their own program under the
-exerciser, read a failure trace, implement discovery/enable, process restoration
+exerciser, read a failure trace, implement versioned enablement, process restoration
 below keybindings, establish output barriers and disable before handoff. Shared
 vectors/scenarios should not depend on the reference application's renderer.
 No test has been run merely by writing this specification.

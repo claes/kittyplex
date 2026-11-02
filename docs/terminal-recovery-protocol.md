@@ -11,7 +11,10 @@ over the open design questions recorded here for v0; this document preserves
 their rationale and broader research questions. Earlier capability matrices,
 generations and candidate operations below are research alternatives, not v0
 requirements. V0 makes one full display-restoration promise and uses one
-transaction number only where needed. No production persistence
+transaction number only where needed. Its versioned enable request combines
+discovery and opt-in; a restore request also establishes attached status. Separate
+discovery and attached-before-restore exchanges below remain research alternatives.
+No production persistence
 strategy or adapter implementation is selected. Current kittyplex behavior is
 described by the
 [carrier lifecycle contract](original-terminal-carrier.md#lifecycle-and-failures).
