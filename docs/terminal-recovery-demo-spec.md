@@ -163,7 +163,7 @@ by the user, such as global fonts or shaders.
 
 ### 3.4. Diagnostics and failure controls
 
-Show compact attachment state, transaction number and restoration status in the
+Show display status, participation, transaction number and operation progress in the
 application status area. Keep detailed logs out of terminal presentation. Each variant
 supports `--seed INTEGER` (default 1), `--protocol=auto|off` (default auto),
 `--log-file PATH`, and `--features COMMA_LIST` (default its implemented profiles).
@@ -190,12 +190,21 @@ changes, not redraws.
 The snapshot shape is:
 
 ```json
-{"schema":0,"pid":1234,"model":{"revision":0,"selected":0,"viewport":0,"text":"","cursor":0,"selection":null,"dialog":null,"focus":"list","counter":0,"image":"A"},"protocol":{"state":"detached","transaction":0,"restorations":0}}
+{"schema":0,"pid":1234,"model":{"revision":0,"selected":0,"viewport":0,"text":"","cursor":0,"selection":null,"dialog":null,"focus":"list","counter":0,"image":"A"},"protocol":{"enabled":true,"display":"detached","operation":null,"transaction":0,"restorations":0}}
 ```
 
 Text cursor/selection indices count Unicode scalar values; selection is null or
 an object with start/end integers. Dialog is null or an object containing text,
 cursor and selection with the same rules. Focus is list, edit or dialog.
+Protocol diagnostics use `display=initial|attached|detached`, independently of
+`enabled` participation and `operation` (`null`, `prepare` or `restore`). These
+are observer fields, not additional wire values. Initial is the starting condition
+before status is first established, never a destination after disable, shutdown or
+failure. While disabled, display retains its last-known value without claiming it
+is current; a new enable response establishes the current value. Transaction is
+0 before any transaction and otherwise the latest transaction number; operation
+is null when no operation is pending. A failed restore keeps display attached
+while available, and its failure/input gate is reported separately in the trace.
 The restorations counter counts successful display restorations. The Readline
 variant maps its live input to text/cursor and its active prompt/search/completion
 interaction to focus edit. It reports its
@@ -435,6 +444,7 @@ Run a shared test matrix, not just screenshots:
 | `restore.interrupted` | New transaction supersedes old rendering; stale completion cannot release input |
 | `failure.responses` | Delayed/refused/stalled restoration and local deadlines; no implicit fallback effects |
 | `state.query` | Current state queries and ordered attached/detached notifications |
+| `state.display-status` | Initial only before first established status; prepare/restore/failure do not add display states; actual loss detaches; disable/handoff never reset to initial |
 | `features.stacks` | Keyboard, colors, modes and pointer restore correctly on later parent return |
 | `features.effects` | Clipboard/notification effects not repeated; replies routed correctly |
 | `fallback.unavailable` | Unsupported/refused restoration is explicit; fallback uses only preserved resources |

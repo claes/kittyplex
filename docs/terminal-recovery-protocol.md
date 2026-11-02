@@ -268,7 +268,7 @@ silently replace the owner or create a false completion boundary. The discovery
 and ownership mechanisms need to be evaluated together. This analysis deliberately
 does not allocate a standard CSI/OSC/DCS identifier or reserve a terminal mode
 number. The separate v0 specification selects an explicitly experimental vendor
-DCS binding with ASCII fields and no JSON/base64 wrapper; it makes no claim of a registered allocation.
+DCS binding with ASCII fields; it makes no claim of a registered allocation.
 
 ## 8. Examples and proposed validation
 
