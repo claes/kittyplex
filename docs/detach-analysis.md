@@ -349,7 +349,7 @@ No persistence strategy or hybrid policy was selected.
 
 | Option | Assessment |
 | --- | --- |
-| Reattach with application redraw | Application-dependent; an explicit recovery protocol could provide a stronger contract than a redraw key; see [section 10](#10-cooperative-recovery-through-a-terminal-escape-code-protocol) |
+| Reattach with application redraw | Application-dependent; an explicit recovery protocol could provide a stronger contract than a redraw key; see [section 10](#10-restore-display-protocol) |
 | Text/ANSI extraction plus selected metadata | Partial visual recovery, not a complete screen/parser/graphics checkpoint |
 | Full output journal with geometry events | Plausible research path; history growth, replay effects, queries and external resources remain difficult |
 | Compact terminal-state model | Could retain current cells and continuation state without a renderer or full output journal; still requires terminal emulation and an explicit compatibility boundary; see [section 9.1](#91-compact-terminal-state-for-screen-recovery) |
@@ -467,22 +467,23 @@ The promising investigation is bounded screen state without a renderer, with
 fidelity measured explicitly. Neither a full Kitty clone nor a limited model has
 been selected or prototyped.
 
-## 10. Cooperative recovery through a terminal escape-code protocol
+## 10. Restore Display protocol
 
-A cooperating application could recreate its interface from surviving application
-state when kittyplex reports that a fresh display is ready. A negotiated terminal
-protocol would carry capability advertisements, disengagement and attachment-state
-notifications, recovery requests and completion markers. Fresh-display recovery
-would reestablish terminal modes as well as repaint; repaint-only support has a
-weaker guarantee. Unsupported applications and earlier shell output still need
-another mechanism, and fallback depends on state preserved beforehand.
+A cooperating application could reconstruct its current interface when a new
+display is available. The experimental **Restore Display** protocol uses small
+ASCII escape-code messages for discovery, opt-in, disengagement, state queries
+and restoration. Participation promises to reestablish required terminal modes
+and resources as well as redraw, including graphics used by the interface.
+Unsupported applications and earlier shell output still need another mechanism;
+fallback depends on state preserved beforehand.
 
-The [terminal recovery protocol research](terminal-recovery-protocol.md) owns the
-detailed analysis, including ownership handoff, output boundaries, liveness,
-application examples and a shared ncurses adapter. This remains proposed research:
-no escape-code encoding, implementation or persistence strategy is selected, and
-no recovery experiments were run. The persistent-owner requirements in section 3
-still apply.
+The [research](terminal-recovery-protocol.md) records alternatives and adapter
+ideas. The [v0 specification](terminal-recovery-protocol-spec.md) defines the
+compact wire format, lifecycle and diagrams; the
+[demo and exerciser requirements](terminal-recovery-demo-spec.md) define staged
+implementation and evidence. These remain experimental documents, not an
+implementation or a selected production persistence strategy. No restoration
+experiments were run. The persistent-owner requirements in section 3 still apply.
 
 ## 11. Further analysis before selecting an implementation
 
@@ -500,7 +501,7 @@ work. No additional experiments were run when this analysis was archived.
 | 7 | Retained-view lifecycle | Rebind a new SSH carrier safely; exercise broker/relay failure, destroyed views, offline resize/font changes and gaps beyond retention |
 | 8 | Fresh-view fidelity | Compare redraw, bounded replay and available Kitty export/import facilities against text, modes, graphics and geometry dependencies |
 | 9 | Compact terminal-state feasibility ([section 9.1](#91-compact-terminal-state-for-screen-recovery)) | Compare restored screens and subsequent behavior against Kitty for incremental status updates, scrolling/insertion/erasure, primary/alternate screens, saved cursors, pending wrap, Unicode, fragmented sequences, resize, queries and graphics; measure retained state under long output and identify unsupported semantics and model divergence |
-| 10 | Cooperative terminal recovery ([section 10](#10-cooperative-recovery-through-a-terminal-escape-code-protocol)) | Validate negotiation, application ownership and handoff, redraw across input contexts, terminal initialization, output/reply boundaries and interrupted recovery without a kittyplex cell grid; define unsupported-client behavior before claiming compatibility |
+| 10 | Restore Display ([section 10](#10-restore-display-protocol)) | Validate negotiation, application ownership and handoff, redraw across input contexts, terminal initialization, output/reply boundaries and interrupted recovery without a kittyplex cell grid; define unsupported-client behavior before claiming compatibility |
 | 11 | Output backpressure and ordered resumption | Propose output floods exceeding queue/buffer capacity, quiet CPU/file/network work, pipelines and stderr on the same PTY, nonblocking writers with partial writes/EAGAIN, and terminal queries; verify bounded queues, responsive management, workload progress/blocking, pending-reply handling and ordered delivery without loss or duplication on resume |
 | 12 | Workload effects and hybrid policy | Test external timeouts, resource/lock retention, freeze and stop-reading thresholds and whether differing per-session policies are worthwhile |
 
