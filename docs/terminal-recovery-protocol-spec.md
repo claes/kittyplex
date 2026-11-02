@@ -183,12 +183,12 @@ sequenceDiagram
     participant D as Display
     Note over C: Gate new user input
     C->>A: a=p,i=7
-    Note over A: Reach safe point; flush earlier writes; pause drawing
+    Note over A: Reach safe point, flush earlier writes, pause drawing
     A->>C: a=p,i=7,s=0
     C->>D: Finish ordered delivery of earlier output
     Note over C,D: Disengage display
     C->>A: a=s,d=0
-    Note over A: Computation may continue; display output stays paused
+    Note over A: Computation may continue, display output stays paused
 ```
 
 Readiness is an output barrier, not a request to freeze the process. After it,
@@ -210,12 +210,12 @@ sequenceDiagram
     Note over C,D: Connect display and update PTY dimensions
     C->>A: a=s,d=1
     C->>A: a=r,i=8
-    Note over A: Stop obsolete writes; flush; finish partial control strings
+    Note over A: Stop obsolete writes, flush, finish partial control strings
     A->>C: a=b,i=8
-    A->>C: Initialize modes; transmit graphics; draw current interface
+    A->>C: Initialize modes, transmit graphics, draw current interface
     C->>D: Forward restoration output
     A->>C: a=c,i=8
-    Note over C,D: Finish ordered delivery; allow normal interaction
+    Note over C,D: Finish ordered delivery, allow normal interaction
 ```
 
 A state notification that the display is attached does not itself resume drawing.
@@ -255,7 +255,7 @@ sequenceDiagram
     participant D as Display
     Note over C,D: Display disappears without preparation
     C->>A: a=s,d=0
-    Note over A: Stop display output; cancel unavailable terminal queries
+    Note over A: Stop display output, cancel unavailable terminal queries
     Note over C: Retain or discard pending output according to declared policy
     Note over C,D: Replacement becomes available
     C->>A: a=s,d=1
@@ -290,7 +290,7 @@ sequenceDiagram
     participant C as Controller
     participant K as Child application
     P->>C: a=d
-    Note over C: Cancel transaction; stop new events; serialize earlier input
+    Note over C: Cancel transaction, stop new events, serialize earlier input
     C->>P: a=d,s=0
     Note over P,K: Parent consumes acknowledgement, then gives input to child
     Note over K: Child opts in separately or remains unsupported
