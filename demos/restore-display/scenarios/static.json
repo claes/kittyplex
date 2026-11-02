@@ -1,0 +1,19 @@
+{
+  "schema": 0,
+  "case": "restore.fresh-static",
+  "requires": ["text", "graphics"],
+  "steps": [
+    {"op": "wait_enabled"},
+    {"op": "attach", "display": "kitty", "fresh": true},
+    {"op": "restore"},
+    {"op": "checkpoint", "name": "before"},
+    {"op": "detach"},
+    {"op": "attach", "display": "kitty", "fresh": true},
+    {"op": "restore"},
+    {"op": "assert", "check": "same_process"},
+    {"op": "assert", "check": "valid_restore_order"},
+    {"op": "assert", "check": "fresh_display", "checkpoint": "before"},
+    {"op": "assert", "check": "model_equal", "checkpoint": "before"},
+    {"op": "assert", "check": "graphics_equal", "checkpoint": "before"}
+  ]
+}

@@ -483,8 +483,9 @@ ideas. The [v0 specification](terminal-recovery-protocol-spec.md) defines the
 compact wire format, lifecycle and diagrams; the
 [demo and exerciser requirements](terminal-recovery-demo-spec.md) define staged
 implementation and evidence. These remain experimental documents, not an
-implementation or a selected production persistence strategy. No restoration
-experiments were run. The persistent-owner requirements in section 3 still apply.
+implementation of production persistence. The [minimal image demo](restore-display-demo.md)
+provides a raw-mode reference and isolated restoration tests; it does not establish
+Bash, MC or Helix support. The persistent-owner requirements in section 3 still apply.
 
 ## 11. Further analysis before selecting an implementation
 

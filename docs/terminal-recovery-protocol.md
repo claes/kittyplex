@@ -28,8 +28,9 @@ disengagement, unexpected loss and reattachment. Generalization beyond v0,
 ownership proof and production fallback/timing policies remain research
 questions. Existing terminal protocols and library APIs are evidence for building
 blocks, not support for this
-proposed operation in Kitty or the example applications. No protocol prototype or
-restoration experiments were run.
+proposed operation in Kitty or the example applications. A [minimal raw-mode prototype](restore-display-demo.md) now exercises image
+restoration with an independent PTY controller. The broader adapter and lifecycle
+alternatives below remain research, not observed application support.
 
 ## 1. Purpose and restoration guarantee
 

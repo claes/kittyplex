@@ -1,13 +1,16 @@
 # Restore Display: experimental v0 specification
 
-Status: **experimental, unregistered and not implemented**. Updated 2026-11-02.
+Status: **experimental and unregistered; minimal reference prototype available**.
+Updated 2026-11-02.
 Restore Display lets an application reconstruct its interface when a terminal
 becomes available again. It is independent of Kittyplex and uses small ASCII
 key/value messages. This specification replaces the earlier unimplemented draft;
 there is no compatibility requirement with that draft.
 
 The [demo and exerciser requirements](terminal-recovery-demo-spec.md) describe
-reference integrations and tests. The [research document](terminal-recovery-protocol.md)
+reference integrations and tests. The [minimal reference](restore-display-demo.md)
+implements the image demonstration and independent exerciser, with explicit lifecycle
+and advanced-feature limitations. The [research document](terminal-recovery-protocol.md)
 retains background and alternatives. No production detach implementation or
 persistence strategy has been selected.
 

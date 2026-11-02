@@ -1,11 +1,13 @@
 # Restore Display demos and protocol exerciser specification
 
-Status: **implementation requirements; not implemented**. Updated 2026-11-02.
+Status: **minimal Rust reference and exerciser implemented; later stages remain requirements**.
+Updated 2026-11-02.
 This is the primary input for the staged demo suite. The
 [Restore Display specification](terminal-recovery-protocol-spec.md) defines the
 wire contract; this document defines functionality, integration examples and
 acceptance evidence. The [research document](terminal-recovery-protocol.md)
-provides rationale. Existing filenames are retained for link stability.
+provides rationale. The [implemented walkthrough](restore-display-demo.md) describes
+commands, evidence and current limitations. Existing filenames are retained for link stability.
 
 ## 1. Goals and structure
 
@@ -67,9 +69,40 @@ Application state, protocol status and terminal display state remain distinct.
 
 ## 3. Common demo functionality
 
+### Minimal milestone-1 application
+
+The first demo is deliberately small: a static image and a status line containing
+PID, display status, restore ID and current image. `i` generates the next numbered image of colored boxes and `q` quits. Outside
+guided mode only, `d` can explicitly arm generation on the next detach. An optional `--image FILE.png`
+retains and transfers PNG bytes directly. There is no editor, panel layout, dialog,
+background counter, mouse interaction or child launcher in this milestone.
+
+Keep the bounded codec, model/draw hooks and application adapter separate so another
+developer can copy the integration. Implement the `text` and `graphics` profiles;
+advanced profiles and arbitrary job-control/child handoff remain later work. Basic
+alternate-screen/cursor setup uses a documented known terminal baseline. Restore
+must work while idle, including the same-size and changed-size cases, and must
+retransmit the current image to a fresh Kitty process. Use the deterministic image
+formula in section 3.2. The standalone exerciser and its private PTY are included.
+
+The minimal snapshot's model is `{"revision":0,"image":"#1","armed":false}`;
+the protocol diagnostics retain the shape in section 3.4. The full editing model
+below applies to later variants. Image changes update model revision, while redraw
+does not. The optional manual `d` action changes the model in the detach hook before restore.
+The guided walkthrough disables `d` and preserves the selected image across detach
+and reattach; it accepts Enter in either window.
+
+The implementation currently supports fresh Kitty, foreground terminal and simulated
+headless attachment, scenarios, protocol captures and fault fixtures. Retained views,
+advanced-feature observers and full shell/job-control conformance are explicitly
+unsupported. See the [walkthrough](restore-display-demo.md#verification-and-limits)
+for tested behavior and limits. Unsupported results must never count as passed tests.
+
 ### 3.1. State and interface
 
-Full-screen variants MUST expose the following common model and interface:
+The minimal milestone-1 reference described below is the initial implementation.
+The richer full-screen variants planned for stage 2 and later MUST expose the
+following common model and interface:
 
 - A scrollable list of 100 numbered items with persistent selection and viewport.
 - An unsaved editable UTF-8 text field with cursor and selection; editing changes
@@ -97,7 +130,7 @@ application's keyboard input, so detach/restore actions cannot collide with thes
 bindings.
 
 Deterministic startup defaults: item 0 selected, viewport 0, empty editable
-values, no modal, counter 0, background updates paused, and image state A. The
+values, no modal, counter 0, background updates paused, and image #1. The
 reference layout at 80x24 places the list on the left, edit/graphics pane on the
 right and a status row at the bottom. It must also support 120x40 and a too-small
 40x10 viewport. Variant screenshots need not have identical font metrics or
@@ -110,21 +143,23 @@ from application state.
 
 ### 3.2. Graphics as an initial requirement
 
-The direct Rust reference MUST implement Kitty graphics in milestone 1. Use a
-procedurally generated 64x64 RGBA image with a checkerboard and distinct colored
-corners; image B changes the corner colors. The demo retains pixels or the seed
-and logical image state, not a dependency on the old terminal's image store.
-Use direct in-band image transfer; remote file paths/shared memory are excluded
-from the initial graphics profile.
+The minimal direct Rust reference MUST implement Kitty graphics in milestone 1. Use a
+procedurally generated 64x64 RGBA image containing a 4x4 grid of colored boxes.
+Images are numbered #1, #2, #3 and so on; generating an image advances the number
+instead of alternating between two patterns. The model retains the seed and image
+number (or current PNG bytes), so restoration reproduces exactly the current image.
+Use direct in-band image transfer, without remote file paths or shared memory.
 
-Generate pixels row-major as RGBA bytes. For coordinates x/y in 0..63, fill an
-8x8 checkerboard with RGB (32,32,32) when `(x//8 + y//8 + seed) % 2 == 0`,
-otherwise (224,224,224); alpha is always 255. Override the four 8x8 corner blocks
-with red, green, blue and yellow, respectively, in top-left, top-right,
-bottom-left, bottom-right order. A uses that order; B reverses it. Seed is an
-integer in 0..4294967295. Use image ID 1 and placement ID 1 in an isolated demo
-view; later images use ascending IDs. Integrations sharing a view must allocate
-their own IDs. This formula gives every implementation the same expected data.
+Each 16x16 cell has a two-pixel dark border, RGB (24,24,28), around its colored
+12x12 interior. Alpha is always 255. Colors are derived from the unsigned 32-bit
+seed, zero-based image number and box index using the 64-bit wrapping mixer in the
+[reference generator](../demos/restore-display/src/demo.rs), with each channel in
+48..239. Seed 1 and image number 0 produce image #1. This deterministic generator
+is the source of expected pixels across variants.
+
+Use image ID 1 and placement ID 1 in the isolated demo view. New logical images
+replace those owned resources rather than accumulating images in the terminal.
+Integrations sharing a view must allocate their own IDs.
 
 Support transmit/place, move, resize, replace and delete with explicit image and
 placement IDs scoped to the demo. Cleanup MUST affect only resources owned by
@@ -134,10 +169,10 @@ than depend on unsupported clipping behavior. Resizing recomputes placement from
 new geometry. No image IDs from an old display may be assumed to exist in a fresh
 one; retransmit current image data before reconstructing placements.
 
-The decisive scenario destroys the original Kitty view, changes logical image A
-to B while detached through the demo's controlled model progression, and attaches
-a genuinely fresh display. It MUST show B and the current text without replaying
-A's old graphics stream. The detached image change is prearranged before detach
+The decisive scenario destroys the original Kitty view, explicitly generates image #2
+while detached through the demo's controlled model progression, and attaches
+a genuinely fresh display. It MUST show image #2 and the current text without replaying
+image #1's old graphics stream. The detached image change is prearranged before detach
 (for example, a scheduled model change), not injected as input to an absent view.
 
 If graphics support is unknown, resolve it through normal terminal probing only
@@ -182,7 +217,7 @@ by the user, such as global fonts or shaders.
 ### 3.4. Diagnostics and failure controls
 
 Show display status, participation, transaction number and operation progress in the
-application status area. Keep detailed logs out of terminal presentation. Each variant
+application status area (a compact PID/display/restore/image line for milestone 1). Keep detailed logs out of terminal presentation. Each variant
 supports `--seed INTEGER` (default 1), `--protocol=auto|off` (default auto),
 `--log-file PATH`, and `--features COMMA_LIST` (default its implemented profiles).
 Unknown requested features are a startup error. `--help` documents feature support,
@@ -210,7 +245,7 @@ changes, not redraws.
 The snapshot shape is:
 
 ```json
-{"schema":0,"pid":1234,"model":{"revision":0,"selected":0,"viewport":0,"text":"","cursor":0,"selection":null,"dialog":null,"focus":"list","counter":0,"image":"A"},"protocol":{"enabled":true,"display":"detached","operation":null,"transaction":0,"restorations":0}}
+{"schema":0,"pid":1234,"model":{"revision":0,"selected":0,"viewport":0,"text":"","cursor":0,"selection":null,"dialog":null,"focus":"list","counter":0,"image":"#1"},"protocol":{"enabled":true,"display":"detached","operation":null,"transaction":0,"restorations":0}}
 ```
 
 Text cursor/selection indices count Unicode scalar values; selection is null or
@@ -225,7 +260,8 @@ is current; a new enable response establishes the current value. Transaction is
 0 before any transaction and otherwise the latest transaction number; operation
 is null when no operation is pending. A failed restore keeps display attached
 while available, and its failure/input gate is reported separately in the trace.
-The restorations counter counts successful display restorations. The Readline
+The restorations counter counts callbacks whose completion bytes were written
+to the PTY; the controller separately tracks matching completion and delivery. The Readline
 variant maps its live input to text/cursor and its active prompt/search/completion
 interaction to focus edit. It reports its
 auxiliary selection/task data in the same model fields. Detailed search-state
@@ -237,7 +273,7 @@ documented observer-only additions, and never compares protocol diagnostics.
 
 | Variant | Framework and purpose | Required features |
 | --- | --- | --- |
-| `rust-direct` | Rust with direct terminal handling; compact reference implementation | Common interface and all advanced profiles |
+| `rust-direct` | Rust with direct terminal handling; minimal image reference first | Minimal text/graphics in stage 1; richer interface and advanced profiles in stage 2 |
 | `rust-termina` | Rust with Termina and a small retained/diff renderer; preparation for Helix | Common interface, graphics, keyboard and terminal modes |
 | `c-ncurses` | C/ncurses; shared adapter experiment and MC backend | Common interface, application-managed graphics, colors and terminal modes |
 | `c-slang` | C/S-Lang; MC's other backend | Same requirements as c-ncurses |
@@ -264,7 +300,7 @@ bindings as a substitute for lower-level event integration.
 
 | Stage | Acceptance gate |
 | --- | --- |
-| 1 | Codec/vectors, standalone exerciser and rust-direct reference with graphics; fresh text/image restoration and subsequent interaction pass |
+| 1 | Bounded codec, standalone exerciser and minimal rust-direct image/status reference; fresh current-image restoration and subsequent input pass |
 | 2 | Termina, ncurses and Readline demos; full advanced reference; context, static-input, handoff and failure tests |
 | 3 | S-Lang, tcell and Bubble Tea; shared scenarios across all seven, with explicit optional unsupported profiles |
 | 4 | Experimental Helix, MC ncurses/S-Lang and Bash integrations; real application nesting and special states |
@@ -321,7 +357,8 @@ cannot be combined with an expectation that in-band restoration will complete.
 
 ### Proposed CLI
 
-These commands are implementation requirements, not existing installed commands:
+The milestone-1 package implements these commands; see the [walkthrough](restore-display-demo.md)
+for installation, unsupported observers and retained-view limitations:
 
 ```sh
 restore-display-exerciser start --session-dir DIR [--demo-state] [--support on|off] -- PROGRAM ARGS...
@@ -392,7 +429,7 @@ ordered steps. These profiles select tests; they are not wire capabilities.
 {
   "schema": 0,
   "case": "restore.fresh-static",
-  "requires": ["text", "terminal_modes"],
+  "requires": ["text"],
   "steps": [
     {"op": "wait_enabled", "timeout_ms": 5000},
     {"op": "attach", "display": "kitty", "fresh": true},
@@ -468,7 +505,7 @@ Run a shared test matrix, not just screenshots:
 | `lifecycle.detach` | One detached notification for intentional and unexpected loss; application data survives; no final-old-display delivery guarantee |
 | `restore.fresh-static` | Restore establishes attached without a preceding state message; matching begin/complete markers; no update tick; same process/model; new emulator; next edit correct |
 | `restore.contexts` | Editing, modal, search/completion without changing interaction merely to restore |
-| `restore.graphics` | Current B pixels/placements restored into a new emulator, not old image replay |
+| `restore.graphics` | Current generated pixels/placements restored into a new emulator, not old image replay |
 | `restore.resize` | Same/changed cell and pixel geometry, too-small state and subsequent correct behavior |
 | `restore.retained-view` | View identity retained; ordinary full restore succeeds without stale resources |
 | `lifecycle.unexpected-loss` | Same detached event as intentional detach; handle loss and outstanding terminal query cancellation |

@@ -287,3 +287,14 @@ summary; `man kittyplex` is the full reference. From a checkout, use
 The [architecture analysis](docs/remote-session-architecture.md) is historical
 design research. The [detach analysis](docs/detach-analysis.md) records deferred
 options; neither document promises additional implemented features.
+
+## Restore Display walkthrough
+
+For the experimental image detach/reattach demonstration, run:
+
+```sh
+./scripts/restore-display-demo.sh
+```
+
+It builds the tools and guides you through three Enter prompts. See the
+[walkthrough](docs/restore-display-demo.md#guided-walkthrough).

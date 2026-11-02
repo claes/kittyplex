@@ -47,6 +47,14 @@ To run acceptance tests over the same delayed transport:
 nix develop --command env KITTYPLEX_TEST_RTT_MS=100 ./scripts/test.sh
 ```
 
+## Restore Display reference
+
+The independent [minimal image demo and exerciser](restore-display-demo.md) live in
+`demos/restore-display`. The main verification script also builds its two executables
+and runs its unit, private-PTY and isolated Kitty/Xvfb tests. The separate
+`nix build path:.#restore-display` package does not enable production detachment in
+Kittyplex. See the walkthrough for a manual fresh-display demonstration.
+
 ## Working on this project with Codex
 
 ```sh

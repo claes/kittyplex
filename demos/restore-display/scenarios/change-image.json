@@ -1,0 +1,19 @@
+{
+  "schema": 0,
+  "case": "restore.current-image",
+  "requires": ["text", "graphics"],
+  "steps": [
+    {"op": "wait_enabled"},
+    {"op": "attach", "display": "kitty", "fresh": true},
+    {"op": "restore"},
+    {"op": "input", "data": "d"},
+    {"op": "checkpoint", "name": "original"},
+    {"op": "detach"},
+    {"op": "attach", "display": "kitty", "fresh": true},
+    {"op": "restore"},
+    {"op": "assert", "check": "same_process"},
+    {"op": "assert", "check": "fresh_display", "checkpoint": "original"},
+    {"op": "assert", "check": "input_effect", "value": {"image": "#2", "armed": false}},
+    {"op": "assert", "check": "valid_restore_order"}
+  ]
+}
