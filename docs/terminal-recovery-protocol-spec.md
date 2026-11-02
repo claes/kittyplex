@@ -54,18 +54,34 @@ stateDiagram-v2
 - **detached**: No display is available. The process and its application data
   survive, and background computation may continue while drawing is paused.
 
-The enable response establishes the first status; subsequent state messages
-report availability changes. A restore request also establishes attached status,
-without requiring a preceding attached notification. Preparing to detach and restoring are operations,
-not additional display states. Track participation, the pending operation and its
-transaction number separately. Preparation leaves the display attached until it
-actually disengages. Restoration, including an unsuccessful attempt, leaves it
-attached while the display remains available. Loss changes it to detached and
-cancels the pending operation.
+The enable response establishes the first status. A detached notification reports
+loss; a restore request establishes attached status. There is no separate attached
+notification or display-status query. Restoration is an operation, not another
+display state. Track participation and the restore request separately. Failure
+leaves the status attached while a display remains available. Loss changes it to
+detached and invalidates the controller's current attempt.
 
 Disable, shutdown and child handoff end participation, not display availability.
 They do not transition back to initial. A disabled participant's last-known status
 is no longer authoritative; a later enable acceptance supplies the current status.
+
+### Quickstart for application developers
+
+1. While owning terminal input, configure compatible input settings and install
+   the decoder, then enable support and consume the response.
+2. On a detached notification, pause drawing and display queries when practical;
+   preserve application data and pending input.
+3. On a restore request, initialize the terminal and redraw the current interface.
+   An adapter writes begin and complete markers around that output, or reports
+   unavailable if restoration cannot finish.
+4. Before relinquishing terminal input, disable support and consume its
+   acknowledgement, then perform normal terminal cleanup and handoff.
+
+The adapter handles framing, request IDs and output serialization. Application
+code supplies a detach hook and a restore callback at safe UI execution points.
+The callback may finish before a newer request is serviced; it need not support
+immediate cancellation. [PTY integration](#9-pty-integration) defines the ordering
+of input setup, resize and signal handling around these exchanges.
 
 ```mermaid
 flowchart LR
@@ -115,13 +131,13 @@ protocol, not a payload inside Restore Display.
 | `action` | Required operation name from section 3 |
 | `version` | Requested protocol version; `0` in the enable request |
 | `id` | Transaction number, assigned by the controller |
-| `status` | Operation result: `accepted`, `ready` or `unavailable`, as specified below |
+| `status` | Enable/disable result: `accepted` or `unavailable`, as specified below |
 | `display` | Display status: `attached` or `detached` |
 
 Fields may be in any order. Keys are nonempty words of lowercase ASCII letters.
 Values are nonempty ASCII words containing only letters, digits, `.`, `_`, `+`
-or `-`. Known numeric
-fields use unsigned decimal with no leading zeros except the value `0` itself.
+or `-`. Known numeric fields use unsigned decimal with no leading zeros except
+the value `0` itself.
 Transaction numbers are `1..4294967295`. Empty fields, whitespace, repeated keys,
 leading/trailing commas and invalid known values make a message invalid. Unknown
 keys are ignored, allowing small future extensions. Unknown actions and invalid
@@ -153,14 +169,11 @@ request except restoration start/completion and unavailable notifications.
 | C -> A | `action=enable,status=unavailable` | Participation unavailable; no notifications enabled |
 | A -> C | `action=disable` | Disable participation before shutdown or another reader takes over |
 | C -> A | `action=disable,status=accepted` | Disabled; final protocol input for this participation |
-| A -> C | `action=state` | Query current display state while enabled |
-| C -> A | `action=state,display=detached` or `action=state,display=attached` | State response or unsolicited state notification |
-| C -> A | `action=prepare,id=N` | Prepare to disengage the display |
-| A -> C | `action=prepare,id=N,status=ready` | Ready: earlier output flushed and new drawing paused |
+| C -> A | `action=state,display=detached` | Display has detached or been lost |
 | C -> A | `action=restore,id=N` | Display is attached; restore it |
 | A -> C | `action=begin,id=N` | Start of restoration output; earlier output is obsolete |
-| A -> C | `action=complete,id=N` | Restoration output complete and flushed |
-| A -> C | `action=unavailable,id=N` | Cannot complete this disengagement/restoration |
+| A -> C | `action=complete,id=N` | Restoration output has been written to the PTY in order |
+| A -> C | `action=unavailable,id=N` | Cannot complete this restoration |
 
 The controller never sends unsolicited input to a participant that has not
 enabled the protocol. The application initiates a versioned enable request,
@@ -178,13 +191,13 @@ available. The controller updates actual PTY geometry before requesting restore.
 The application may probe terminal features after its start marker, or report
 unavailable rather than silently claim complete restoration with missing content.
 
-Only one disengagement/restoration transaction is outstanding. The controller
-uses increasing transaction numbers for the PTY lifetime, never reusing them;
-it ends participation before exhausting the range. A new restore request replaces
-an earlier transaction. The application stops the old drawing path before starting
-the replacement; old requests are ignored. Only responses matching the current
-transaction can advance the pending operation or release gated input. There are
-no other IDs, tokens, global attachment generations or per-message counters.
+The controller recognizes one current restore request. It assigns increasing
+transaction numbers for the PTY lifetime, never reusing them, and ends
+participation before exhausting the range. Only responses matching that current
+request can advance restoration or release user input. An adapter runs one restore
+callback at a time and may retain the newest pending request, as described in
+[section 7](#7-unexpected-loss-and-display-changes). There are no other IDs, tokens
+or per-message counters.
 
 ## 4. Discovery and startup
 
@@ -192,6 +205,7 @@ no other IDs, tokens, global attachment generations or per-message counters.
 sequenceDiagram
     participant A as Application
     participant C as Controller
+    Note over A: Own terminal input, configure it and install decoder
     A->>C: action=enable,version=0
     C->>A: action=enable,status=accepted,display=attached
 ```
@@ -208,8 +222,7 @@ The controller serializes acceptance before any subsequent protocol events on
 the same input stream, so availability changes after acceptance arrive in order.
 No new participation is enabled by a refused request. A repeated enable while
 already enabled is refused and does not replace the active interface.
-State queries are answered only while enabled. Unknown/disabled input is not a
-place for controller probing.
+The controller never probes an unknown reader with unsolicited protocol input.
 
 Timeouts are local implementation policy, not fields in the protocol. Before
 handing input to another reader, an application must resolve any outstanding
@@ -224,26 +237,27 @@ that uncertainty. The exerciser explicitly tests a silent unsupported controller
 sequenceDiagram
     participant A as Application
     participant C as Controller
-    C->>A: action=prepare,id=7
-    A->>C: action=prepare,id=7,status=ready
-    Note over C: Finish earlier output delivery and detach
+    Note over C: Disconnect display and stop forwarding user input
     C->>A: action=state,display=detached
 ```
 
-The controller gates new user input before requesting preparation. The application
-reaches a safe point, flushes earlier output and pauses drawing before replying
-ready. Display status stays attached until actual disengagement, reported by the
-final detached notification. The controller finishes ordered delivery of earlier
-output before detaching.
+Intentional detachment and unexpected display loss use this same notification.
+The controller invalidates the current restore attempt and stops routing input
+from the detached display. It keeps the application PTY alive and continues
+reading application output and processing protocol frames.
 
-Readiness is an output barrier, not a request to freeze the process. After it,
-only protocol output is permitted until restoration. Pending input and application
-data remain intact. An application that cannot prepare sends `action=unavailable,id=7`.
-The controller cannot claim graceful disengagement without the matching readiness
-response. On refusal or timeout it may keep the display or explicitly force loss;
-that policy belongs to the controller. Before resuming user interaction after an
-uncertain preparation, restore the display, since a late readiness response may
-have paused drawing.
+The application pauses drawing and new display queries/effects when it can process
+the event, and reconciles outstanding terminal queries. Application data and
+pending input survive; computation may continue. The notification is not an
+acknowledgement that drawing has stopped, and a callback or write already in
+progress may finish. The controller handles that remaining output according to
+its declared retention/discard policy.
+
+V0 does not promise delivery of the final updates to the old display or preservation
+of terminal history. It promises restoration of the current application interface.
+The prepare/ready handshake for graceful disengagement remains a
+[research alternative](terminal-recovery-protocol.md#intentional-disengagement-and-unexpected-loss),
+not a v0 operation or a required capability.
 
 ## 6. Restore display
 
@@ -252,23 +266,35 @@ sequenceDiagram
     participant A as Application
     participant C as Controller
     C->>A: action=restore,id=8
-    A->>C: action=begin,id=8
-    A->>C: Terminal initialization and current interface
-    A->>C: action=complete,id=8
+    A->>C: Begin marker + initialization and drawing + complete marker
 ```
 
-Before requesting restore, the controller connects the display, updates actual
-PTY dimensions and gates user input. The restore request itself establishes
-attached status; no separate attached notification is required. Attached status
-alone, including a standalone state notification, does not resume drawing or
-release user input. The application waits for restore, then stops obsolete writes,
-flushes earlier output and finishes partial control strings before emitting begin.
+The response arrow groups an ordered stream, not a single message or write. Its
+markers are `action=begin,id=8` and `action=complete,id=8`; the bytes between them
+use ordinary terminal protocols, including graphics. No whole-screen buffer or
+acknowledgement of each marker is required. Terminal queries and replies may occur
+within the restoration.
 
-Start and completion markers share the same serialized output path as drawing. The controller suppresses obsolete presentation
-output to the replacement until the matching start marker, then forwards the
-restoration output in order. The application emits completion only after flushing
-all initialization and drawing output, never merely scheduling it. The controller
-finishes ordered delivery before allowing normal interaction.
+Before requesting restore, the controller prepares the display, gates user input
+and obsolete output, then updates actual PTY dimensions. The
+[detailed ordering](#resize-and-restoration-order) includes the resulting resize
+signal. The restore request establishes attached status without implying that
+restoration has finished.
+
+At a safe execution point the application finishes or stops older rendering,
+writes pending earlier output to the PTY and finishes partial control strings.
+It then writes begin, initializes modes/resources, draws its current interface,
+and writes complete after all that output. The adapter serializes this stream
+with other terminal writes and submits buffered bytes through complete to the
+PTY. Scheduling a future redraw is insufficient. Here, writing pending output
+means preserving its order; it does not mean discarding it with `tcflush()`.
+
+The controller suppresses obsolete presentation output until the matching begin
+marker, then forwards restoration output in order. Begin is needed because old
+bytes may still be buffered in the application. Complete marks the end of the
+restoration; after it, the controller finishes ordered delivery before allowing
+normal interaction. Terminal replies needed by restoration remain deliverable
+while user input is gated.
 
 ```text
 Application output:   obsolete bytes | action=begin,id=8 | initialization + drawing | action=complete,id=8 | live output
@@ -287,42 +313,35 @@ current top value. A participant unable to do that must report unavailable.
 Byte-perfect continuation of an intact retained view is a separate controller
 mechanism, not another mode or capability in this protocol.
 
-Completion establishes application output completion and ordered delivery. It
-is not an acknowledgement that the terminal parsed everything or rendered a
+Completion marks the application's output boundary. The controller must still
+finish ordered delivery; neither step proves that the terminal has rendered a
 frame. After reattachment, test subsequent input and drawing, not just a picture.
 
 ## 7. Unexpected loss and display changes
 
-```mermaid
-sequenceDiagram
-    participant A as Application
-    participant C as Controller
-    Note over C: Display is lost
-    C->>A: action=state,display=detached
-    Note over A: Pause drawing and reconcile outstanding terminal queries
-    Note over A,C: When a display becomes available, use the restore exchange
-```
+On unexpected loss, use the [detached notification](#5-display-disengagement).
+When a display becomes available, use the [restore exchange](#6-restore-display).
+The controller detects failure; application-facing heartbeats and leases are not
+part of v0. Loss invalidates its current attempt immediately, so a delayed response
+cannot revive it. This does not require an application callback to stop instantly.
 
-When a display becomes available, use the [restore exchange](#6-restore-display)
-without a preceding attached notification. Pending output is retained or discarded
-according to the controller's declared policy.
+If resize or replacement requires another restoration, update geometry in the
+specified order and issue a new request ID. The controller closes the presentation
+gate until the new matching begin marker and ignores earlier completion/failure
+responses. It must not let an earlier attempt release user input.
 
-An application must support restoration without an earlier preparation handshake.
-Detached notification causes it to stop new display queries/effects and drawing
-when it can process the event. There is no extra quiescence acknowledgement for
-unexpected loss; the later restoration start marker provides the required output
-boundary. Delivery of detached notification alone does not prove drawing stopped.
+The adapter MAY finish the running callback before handling the newer request.
+As requests are decoded, retain only the newest pending restore; do not start
+concurrent callbacks. At the next safe point, process pending display events and
+service that request if the display is still attached. A detached notification
+clears pending restores received before it; a later restore establishes attached
+status again. Duplicate or older request IDs are ignored. Any output or completion
+from a superseded callback remains associated with its original ID.
 
-A controller detects display failure and reports state; application-facing
-heartbeats/leases are not part of v0. The application may query state after
-uncertainty. State messages are ordered on the same input stream. A display loss
-cancels the controller's pending transaction, so an old response cannot revive it.
-
-If resize or replacement occurs during restoration, update actual PTY geometry
-and issue a new restore transaction. The application serializes cancellation of
-the old renderer with starting the new one. Ordinary resize handling while active
-can continue to use existing terminal mechanisms. A restoration failure must not
-be mistaken for successful ordinary resize.
+This permits ordinary render functions without cancellation points in every
+output chunk. A callback that waits for terminal replies still needs the event
+loop/decoder to handle loss and query failure. Ordinary resize while attached
+uses existing terminal mechanisms and must serialize with restoration drawing.
 
 ## 8. Handoff and shutdown
 
@@ -332,7 +351,9 @@ sequenceDiagram
     participant C as Controller
     P->>C: action=disable
     C->>P: action=disable,status=accepted
+    Note over P: Clean up terminal, restore attributes and transfer ownership
     Note over P: Child runs, then parent resumes
+    Note over P: Reclaim input, configure attributes and install decoder
     P->>C: action=enable,version=0
     C->>P: action=enable,status=accepted,display=attached
 ```
@@ -349,15 +370,16 @@ already ended. This responds to an application request rather than notifying an
 unknown reader. Disable acknowledgement is the last protocol input for that
 participation. The application keeps decoding through it, discards cancelled
 transaction events, and drains/reconciles earlier terminal replies before
-transferring input. Normal
-shutdown uses the same disable exchange; no separate goodbye operation is needed.
+transferring input. Only then may it clean up terminal modes, restore appropriate
+terminal attributes and transfer foreground ownership where required. On return,
+it reclaims input ownership and configures the decoder/input settings before
+enabling again. Normal shutdown uses the same disable exchange and cleanup.
 Applications can start or shut down while detached: enable reports
 `display=detached`, and disable still works without a display.
 
 If restoration fails or times out, display status remains attached while the
 display is available, but user input stays gated until a new restore, disable or
-explicit fallback resolves the attempt. After uncertain disengagement, a restore
-is required before resuming interaction. Only one cooperating interface reads
+explicit fallback resolves the attempt. Only one cooperating interface reads
 input at a time; process names or shared foreground groups do not establish that.
 The controller must revoke participation on known process death or invalidation.
 An in-band protocol cannot atomically detect arbitrary uncooperative exec/reader
@@ -365,7 +387,94 @@ takeover or retract input already delivered. Integrations must document their
 lifecycle monitoring and cooperate with handoff, rather than claim universal
 unmodified-shell safety. This protocol is not an authentication boundary.
 
-## 9. Implementation rules and examples
+## 9. PTY integration
+
+### Input settings and output ownership
+
+Before enabling, the application configures noncanonical, non-echoing input and
+installs its decoder. Its terminal settings must let protocol bytes reach that
+decoder without transformation or consumption as special characters. Keep
+compatible settings until disable acknowledgement. The application owns these
+settings; attaching a display does not require the controller to reset the slave
+PTY's termios or recreate the PTY. See [terminal attributes](https://man7.org/linux/man-pages/man3/termios.3.html).
+
+All writers belonging to the cooperating interface, including stderr on the same
+PTY, must serialize with the markers. Uncontrolled background writers can interleave
+bytes; the protocol does not identify their origin or repair that interference.
+
+### Resize and restoration order
+
+```mermaid
+sequenceDiagram
+    participant C as Controller
+    participant K as Kernel / application PTY
+    participant A as Application
+    Note over C: Prepare replacement display and gate user input and obsolete output
+    C->>K: Set actual dimensions with TIOCSWINSZ
+    K-->>A: Generate SIGWINCH if dimensions changed
+    C->>A: action=restore,id=8
+    A->>K: Read current dimensions with TIOCGWINSZ
+    A->>C: Begin marker + initialization and drawing + complete marker
+    Note over C: Finish ordered output delivery and release user input
+```
+
+The ioctl arrows are operating-system calls; only the restore request and marked
+response use Restore Display. The dashed arrow shows signal generation, not when
+the application handles it. Linux sends SIGWINCH to the foreground process group
+when dimensions change. Gate obsolete output before TIOCSWINSZ because an existing
+resize handler may draw immediately. The restore callback reads current dimensions
+without depending on that handler having run. Reattachment at unchanged dimensions
+still requires restore. See [window-size operations](https://man7.org/linux/man-pages/man2/TIOCSWINSZ.2const.html).
+
+Serialize resize-driven drawing with the restore callback. A delayed SIGWINCH
+handler must not interleave incremental writes with restoration. Handle UI work
+at a safe execution point rather than drawing asynchronously from the signal
+handler. The controller does not send an extra SIGWINCH as a substitute for restore.
+
+### Output queues, replies and flow control
+
+Writing pending application buffers means submitting their bytes to the PTY in
+order. `tcflush()` discards queues, and `TCSAFLUSH` can discard unread input; neither
+is an ordinary restoration step. `tcdrain()` supplies no acknowledgement that a
+replacement emulator has drawn the screen. Preserve the marker boundaries instead.
+See [terminal queue operations](https://man7.org/linux/man-pages/man3/termios.3.html).
+
+User-input gating stops forwarding user interaction while leaving protocol input
+and terminal replies needed by restoration operational. Continue consuming the
+application PTY while detached and restoring: otherwise a blocked older write can
+prevent the application from reaching the restore callback or emitting begin.
+
+XOFF or `tcflow(TCOOFF)` also suspends the stream carrying application protocol
+responses. V0 does not use output suspension to detach. If existing user flow
+control stalls an attempt, report that condition; do not silently undo it. Continue
+servicing the separate controller UI. [Flow-control semantics](https://man7.org/linux/man-pages/man3/termios.3.html)
+explain why keeping the controller responsive alone cannot unblock that stream.
+
+### Job control and disrupted streams
+
+Display loss does not stop the process, change its foreground group or close the
+application PTY. Normal shell/application job control owns `tcsetpgrp()`, suspension
+and resumption. Cooperative suspension must arrange disable/acknowledgement before
+relinquishing input, then restore compatible input handling before enabling again.
+SIGCONT alone does not establish display availability or completion. An uncatchable
+SIGSTOP cannot perform a cooperative handshake. See [foreground ownership](https://man7.org/linux/man-pages/man3/tcsetpgrp.3.html)
+and [signals](https://man7.org/linux/man-pages/man7/signal.7.html).
+
+Terminal-generated interrupt, quit and suspend signals can flush queues depending
+on termios settings, and application/library cleanup may also discard queued bytes.
+An adapter must document and test its handling of these operations. A disrupted
+attempt is incomplete: invalidate it, keep user input gated and reject late
+completion. Reestablish usable decoding and ownership before retrying or enabling
+again; a timeout or state query cannot reconstruct missing bytes or prove a safe
+handoff. V0 does not prescribe changing signal semantics or setting NOFLSH.
+
+Linux [PTY packet mode](https://man7.org/linux/man-pages/man2/TIOCPKT.2const.html)
+can report queue flushes and output stop/start events. A controller may use these
+as disruption evidence, but they neither identify the application nor acknowledge
+a redraw. Raw-mode and Readline/job-control integrations require separate evidence;
+the protocol alone does not guarantee arbitrary suspension or queue-clearing safety.
+
+## 10. Implementation rules and examples
 
 Controller policy handles deadlines, failure detection, buffering and fallback.
 It must preserve the resources needed by a fallback before discarding them.
@@ -374,7 +483,7 @@ restart the application or terminate it. Raw PTY/control processing stays bounde
 and responsive while detached; a fresh-restoration policy may drain obsolete
 output without promising uninterrupted byte delivery.
 
-User input is visibly rejected while disengaging/restoring rather than queued
+User input is visibly rejected while detached/restoring rather than queued
 for surprise execution. Previously delivered input is not replayed. Real terminal
 replies and inserted protocol input are serialized without interleaving frames.
 An outstanding query at loss must be cancelled/reconciled; stale replies must not

@@ -19,8 +19,9 @@ Every variant separates a small protocol codec, a framework adapter and an
 application model. The codec implements ASCII fields and transaction matching;
 the adapter receives events below keymaps and safely initializes/redraws; the
 model owns content, pending input and graphics. Conceptual hooks are enable,
-prepare_disengagement, restore_display, disable and re-enable after child return.
-Completion means output flushed, not a render merely scheduled.
+display_detached, restore_display, disable and re-enable after child return.
+The adapter writes begin/complete markers around the restore callback. Completion
+means its ordered output has been written to the PTY, not a render merely scheduled.
 
 Protocol support must be opt-in, and ordinary operation without a supporting
 controller must remain usable. Invoking an experimental demo attempts versioned
@@ -37,12 +38,28 @@ path, never arbitrary concurrent curses calls or asynchronous signal-handler
 rendering. Background activity changes the model, not terminal output directly.
 
 A restore request establishes attached display status without a separate attached
-notification. After it, stop obsolete rendering, flush earlier output, emit the
-matching start marker, reestablish modes/resources, draw the interface, flush and
-emit completion. Refusal uses the unavailable action. No protocol input is a
+notification. At a safe execution point, finish or stop older rendering, write
+pending earlier output to the PTY, emit the matching start marker, reestablish
+modes/resources, draw the interface, and write completion after that output.
+Refusal uses the unavailable action. No protocol input is a
 redraw keybinding. On child handoff, consume disable acknowledgement before giving
 input away; on return send the versioned enable request again. Resource IDs and
 stored parent baselines must be application-owned and reconstructable.
+
+Intentional detach and unexpected loss use the same detached notification without
+preparation or readiness. Pause drawing and display queries when practical while
+preserving application data. The adapter may finish its running callback before
+servicing a newer restore, retains only the newest decoded pending request, and
+never runs restore callbacks concurrently. Loss clears earlier pending requests;
+stale completions cannot release controller input gates.
+
+Follow the [PTY integration contract](terminal-recovery-protocol-spec.md#9-pty-integration):
+configure compatible input before enable, consume disable acknowledgement before
+terminal cleanup or foreground handoff, and serialize resize handling with redraw.
+Read current dimensions in the restore callback. Controller traces must show input
+and obsolete-output gates before TIOCSWINSZ and the restore request. Keep terminal
+replies operational during restoration and consume PTY output while detached.
+Normal restoration never calls tcflush or uses TCSAFLUSH to discard pending data.
 
 The controller does not maintain an emulator or replay the old interface to make
 the demo pass. The application may reuse its framework's existing model/cells.
@@ -176,8 +193,10 @@ For demos only, support `--restore-behavior normal|delay|refuse|stall` and
 restoration; delay waits before starting restoration;
 refuse sends restoration unavailable; stall sends no terminal transaction response.
 These controls MUST NOT change production protocol meanings or require special
-messages from the controller. The renderer must allow interruption between
-multiple output chunks so loss-during-redraw is reproducible.
+messages from the controller. Emit restoration output in multiple chunks so the
+exerciser can disconnect after a chosen byte offset. The renderer need not abort
+mid-callback: test completion of the old callback followed by the newest pending
+request, as well as cooperative early cancellation where implemented.
 
 Optional demo-state instrumentation uses an inherited writable descriptor named
 by `RESTORE_DISPLAY_DEMO_STATE_FD`. If absent, demos behave normally. If present, emit
@@ -198,8 +217,8 @@ Text cursor/selection indices count Unicode scalar values; selection is null or
 an object with start/end integers. Dialog is null or an object containing text,
 cursor and selection with the same rules. Focus is list, edit or dialog.
 Protocol diagnostics use `display=initial|attached|detached`, independently of
-`enabled` participation and `operation` (`null`, `prepare` or `restore`). These
-are observer fields, not additional wire values. Initial is the starting condition
+`enabled` participation and `operation` (`null` or `restore`). These are observer
+fields, not additional wire values. Initial is the starting condition
 before status is first established, never a destination after disable, shutdown or
 failure. While disabled, display retains its last-known value without claiming it
 is current; a new enable response establishes the current value. Transaction is
@@ -290,10 +309,15 @@ Parsing/control state stays bounded independently of capture retention.
 
 For the fresh-restoration path, drain obsolete output while detached, keep control
 processing responsive, and gate presentation until the matching start marker.
+Gating user interaction must not block terminal replies needed by restoration.
+Do not suspend application output with XOFF/tcflow as part of detach; report existing
+flow-control stalls without silently undoing the user's flow-control setting.
 Do not claim lossless byte continuity for that policy. A retained-view transport
 experiment may preserve a bounded pending range with backpressure, but it is a
 separate controller feature, not a continue action in Restore Display. A retained
-view may also run the ordinary restore transaction.
+view may also run the ordinary restore transaction. A transport backpressure
+experiment must keep a path for protocol progress; stopping PTY reads indefinitely
+cannot be combined with an expectation that in-band restoration will complete.
 
 ### Proposed CLI
 
@@ -319,11 +343,11 @@ control client.
 | ctl action | Behavior |
 | --- | --- |
 | `state` | Show controller display status, participation and pending operation |
-| `detach [--retain-view]` | Request preparation, wait for readiness, then disconnect; default destroys the view |
-| `lose-display` | Destroy/disconnect without preparation |
+| `detach [--retain-view]` | Disconnect and notify detached without waiting for the application; default destroys the view |
+| `lose-display` | Simulate unexpected display loss and send the same detached notification when detected |
 | `restore` | Request full display restoration and wait for start/completion or unavailability |
 | `resize --cols N --rows N [--pixel-width N --pixel-height N]` | Change actual display/PTY geometry; restore with a new transaction if needed |
-| `cancel` | Cancel the local pending transaction; partial restoration remains gated |
+| `cancel` | Invalidate the local current request; keep partial restoration gated without requiring the application callback to abort |
 
 The Kitty adapter creates a new isolated emulator process for --fresh and records
 its identity. A clear-screen command, new relay or new PTY is not fresh display
@@ -348,10 +372,12 @@ deadline 5000 ms and display-client failure-detection budget 2000 ms. Start acce
 --discovery-timeout-ms, --request-timeout-ms and --display-loss-timeout-ms options.
 The existing --discovery-timeout-ms name controls the combined discovery/enable
 response wait, not a separate discovery exchange. These are exerciser policy,
-never wire fields. A deadline reports failure; no
-automatic key/signal injection, process restart or termination follows. After
-uncertain preparation, restore before releasing input. During preparation and
-restoration, visibly reject user input rather than queue it for later execution.
+never wire fields. A deadline reports failure; no automatic key/signal injection,
+process restart or termination follows. While detached or restoring, visibly
+reject user input rather than queue it for later execution. Invalidate failed or
+superseded attempts so late completion cannot release input. Record queue flushes
+or output stop/start events when observable, and document limitations of each
+adapter's signal and stream-disruption handling.
 
 Stop is explicit termination of the private test process group: attempt graceful
 shutdown when possible, then SIGTERM, a two-second wait, SIGKILL if needed and reap.
@@ -385,9 +411,11 @@ ordered steps. These profiles select tests; they are not wire capabilities.
 
 Supported operations: wait_enabled, attach (display/fresh), detach (retain_view),
 lose_display, restore, resize (cols/rows and optional paired pixel dimensions),
-query_state, input (encoding utf8/base64 plus data), checkpoint (unique name),
+inspect_state, input (encoding utf8/base64 plus data), checkpoint (unique name),
 assert (check and check-specific arguments), and fault (kind and optional value).
-Every step may override its local timeout_ms; it is never transmitted.
+inspect_state reads the controller's local display/participation status and emits
+no application protocol query. Every step may override its local timeout_ms; it
+is never transmitted.
 Unknown operations/fields are configuration errors. Commands under test are chosen
 at start, not supplied by protocol fields or evaluated as shell expressions.
 
@@ -436,19 +464,25 @@ Run a shared test matrix, not just screenshots:
 | --- | --- |
 | `codec.frames` | All frame splits, adjacent/unknown strings, size bound, cancellation and resynchronization |
 | `discovery.support` | Two-message versioned enable; supported, disabled, incompatible and silent controllers; unsupported versions never enable; acceptance precedes events |
-| `lifecycle.detached-start` | Enable acceptance reports detached; wait for restore; shutdown and state query work without a display |
-| `lifecycle.graceful-detach` | Prepare, ready and actual detached notification preserve the output boundary |
+| `lifecycle.detached-start` | Enable acceptance reports detached; wait for restore; shutdown works without a display |
+| `lifecycle.detach` | One detached notification for intentional and unexpected loss; application data survives; no final-old-display delivery guarantee |
 | `restore.fresh-static` | Restore establishes attached without a preceding state message; matching begin/complete markers; no update tick; same process/model; new emulator; next edit correct |
 | `restore.contexts` | Editing, modal, search/completion without changing interaction merely to restore |
 | `restore.graphics` | Current B pixels/placements restored into a new emulator, not old image replay |
 | `restore.resize` | Same/changed cell and pixel geometry, too-small state and subsequent correct behavior |
 | `restore.retained-view` | View identity retained; ordinary full restore succeeds without stale resources |
-| `lifecycle.unexpected-loss` | No prepare; input decoder handles loss and outstanding terminal query cancellation |
-| `lifecycle.handoff` | Disable acknowledged before child reads; unsupported child receives no stale events |
-| `restore.interrupted` | New transaction supersedes old rendering; stale completion cannot release input |
+| `lifecycle.unexpected-loss` | Same detached event as intentional detach; handle loss and outstanding terminal query cancellation |
+| `lifecycle.handoff` | Disable acknowledgement precedes cleanup, attribute changes and foreground transfer; reclaim/configure before enable; no stale events reach child |
+| `restore.superseded` | Old callback may finish; newest decoded pending request runs next; no concurrent callbacks or stale completion releasing input |
 | `failure.responses` | Delayed/refused/stalled restoration and local deadlines; no implicit fallback effects |
-| `state.query` | Current state queries and ordered attached/detached notifications |
-| `state.display-status` | Initial only before first established status; prepare/restore/failure do not add display states; actual loss detaches; disable/handoff never reset to initial |
+| `state.observation` | Enable establishes initial status, detach reports loss, restore establishes attached; inspection stays local |
+| `state.display-status` | Initial only before first established status; restore/failure do not add display states; actual loss detaches; disable/handoff never reset to initial |
+| `pty.resize-order` | Gate old output before TIOCSWINSZ; read current size during restore; SIGWINCH handled before/after request without interleaved drawing; unchanged size still restores |
+| `pty.output-boundary` | Buffered old output precedes begin; markers serialize with stdout/stderr; no tcflush/TCSAFLUSH in normal restore |
+| `pty.query-replies` | Required terminal replies arrive while user input is gated; late replies from a discarded display cannot satisfy new queries |
+| `pty.flow-control` | XOFF/output suspension stalls are explicit; controller UI stays responsive; detach does not introduce output suspension |
+| `pty.signal-disruption` | Ctrl-C/Ctrl-Z and queue-clearing paths invalidate affected attempts; late completion cannot pass; raw-mode and Readline cases reported separately |
+| `pty.job-control` | Cooperative suspension disables before handoff and re-enables after reclaiming input; external SIGSTOP limitations are explicit |
 | `features.stacks` | Keyboard, colors, modes and pointer restore correctly on later parent return |
 | `features.effects` | Clipboard/notification effects not repeated; replies routed correctly |
 | `fallback.unavailable` | Unsupported/refused restoration is explicit; fallback uses only preserved resources |
@@ -458,6 +492,12 @@ negative fixtures for premature completion, missing mode initialization and imag
 placement without retransmission. A working reference must not make a broken
 third-party application pass. Pin test environments and distinguish inspected
 APIs from observed behavior.
+
+Each adapter guide must document signal/termios behavior, queue-disruption detection
+and lifecycle limits. Use isolated fixtures for Ctrl-C/Ctrl-Z, external suspension
+and flow-control cases; no such faults target unrelated processes or the developer's
+terminal. Fixtures may orchestrate job control outside the application, without
+adding protocol operations. Unsupported coverage must be reported explicitly.
 
 Each guide must show another developer how to run their own program under the
 exerciser, read a failure trace, implement versioned enablement, process restoration

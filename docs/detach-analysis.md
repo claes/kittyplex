@@ -471,8 +471,9 @@ been selected or prototyped.
 
 A cooperating application could reconstruct its current interface when a new
 display is available. The experimental **Restore Display** protocol uses small
-ASCII escape-code messages for discovery, opt-in, disengagement, state queries
-and restoration. Participation promises to reestablish required terminal modes
+ASCII escape-code messages for versioned opt-in, detached notification,
+restoration and acknowledged opt-out. Intentional and unexpected loss use the
+same notification; v0 has no preparation handshake or display-status query. Participation promises to reestablish required terminal modes
 and resources as well as redraw, including graphics used by the interface.
 Unsupported applications and earlier shell output still need another mechanism;
 fallback depends on state preserved beforehand.
