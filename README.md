@@ -56,8 +56,8 @@ in the target account, but let Kitty itself own and render their terminal
 screens. Kittyplex transports application bytes without implementing another
 terminal emulator. This makes Kitty's native display handling part of the design,
 with its own setup requirements and compatibility limits. The current prototype
-requires Kitty and a live connection, has no detach/reattach support, and is not
-a drop-in replacement for tmux.
+requires Kitty and a live connection, supports display detach/attach for cooperating
+applications, and is not a drop-in replacement for tmux.
 
 This approach intends to enable more of kitty's native functionality to work
 also remotely, such as the graphics protocol. 
@@ -230,7 +230,9 @@ The current prototype has the following practical boundaries:
 - **Linux and Kitty-specific.** The desktop needs the local binary and Kitty
   integration files. SSH targets need a compatible binary and `xterm-kitty`
   terminfo; kittyplex does not upload them automatically.
-- **No detach or reattach.** Keep the carrier connection and Kitty process open.
+- **Cooperative display detach/attach only.** Keep the carrier connection and Kitty
+  process open. Applications must enable Restore Display; plain shells cannot detach.
+  Use Ctrl-Shift-M then `d`, `kittyplex ctl list`, and `kittyplex ctl attach ID`.
   Connection loss ends the group; do not rely on application survival.
 - **Up to eight sessions per group.** Sessions retain their state while connected,
   including when another tab is selected.
@@ -290,7 +292,9 @@ options; neither document promises additional implemented features.
 
 ## Restore Display walkthrough
 
-For the experimental image detach/reattach demonstration, run:
+To test the image demo inside Kittyplex, follow the
+[interactive detach/attach walkthrough](docs/usage.md#try-the-image-demo-through-kittyplex).
+For the independent protocol-exerciser demonstration, run:
 
 ```sh
 ./scripts/restore-display-demo.sh

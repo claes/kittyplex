@@ -6,6 +6,7 @@ mod help;
 mod launch;
 mod protocol;
 mod remote;
+mod restore;
 mod session;
 mod terminal;
 mod view;

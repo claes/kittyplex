@@ -95,19 +95,28 @@ uses strict monotonic sequences; duplicates are ignored and gaps fail the group.
 Both kinds of DCS can be fragmented across reads or combined in one read. The
 broker batches up to sixteen small carrier messages into one bounded send-text
 call, retaining each message's sequence and destination.
-Application data is base64, so embedded escapes and control bytes cannot escape
+Restore Display DCS frames are recognized at the application PTY boundary by the
+controller; other presentation data remains opaque. Application data is base64, so embedded escapes and control bytes cannot escape
 an envelope. Relays and the broker use newline-delimited envelopes over streams;
 callback datagrams contain exactly one envelope.
 
 | Operations | Direction/use |
 | --- | --- |
-| `bootstrap`, `create`, `select` | Controller bootstrap and view management |
-| `ready`, `view_ready` | Broker ready; relay dimensions before remote spawn |
+| `bootstrap`, `create`, `select`, `notice` | Controller bootstrap, view management and visible errors |
+| `ready`, `view_ready` | Broker ready; relay dimensions before spawn or reattachment |
 | `output`, `input` | Opaque session byte chunks |
 | `credit`, `input_credit` | Downstream consumption acknowledgements |
 | `resize`, `focus`, `command`, `close` | Session-specific management/events |
+| `detach` | Discard an obsolete view route and close its window, preserving the remote session |
 | `drop`, `shutdown`, `abort`, `closed`, `finish` | Ordered session/group termination |
 | `heartbeat`, `lost` | Health and explicit carrier loss |
+
+For `create`, `id` is a unique attachment route. With a split placement, `n`
+identifies the origin route; with an empty placement and nonzero `n`, it identifies
+the existing stable session to reattach. Otherwise a new session uses `id` as its
+stable ID. Kitty's `kittyplex_session` user variable is the internal route;
+`kittyplex_session_id` and the application's `KITTYPLEX_SESSION` identify the stable
+session. Replacement views keep the same displayed session number.
 
 The broker's `_local` kitten entrypoint handles create, select, carrier check,
 and cleanup operations. Terminal-origin authorization always rejects it; the
@@ -145,15 +154,19 @@ unframed input. Managed application queries still use their own view path.
   non-foreground messages can be in flight; the remaining capacity is reserved
   for foreground output. Background output is additionally limited to four
   submissions per 100 ms, preventing zero-latency floods from monopolizing kitty's
-  UI thread. Producers receive backpressure; output is never dropped. Explicit
+  UI thread. Attached producers receive backpressure; their output is preserved. Explicit
   busy responses retry without consuming
   application credits. A slow SSH response alone never triggers retransmission.
-- Output: 256 KiB of outstanding application bytes per session. The relay returns
+- Output: 256 KiB of outstanding application bytes per view, plus a bounded
+  controller staging queue of at most 256 KiB plus one read/parser tail per session. The relay returns
   credit only after writing those bytes into its local terminal endpoint. Credits
   are coalesced in 8 KiB increments or after 50 ms; small writes do not cause a
   separate kitty RPC each time.
-- Input: 64 KiB per session. The remote PTY manager returns credit as PTY writes
-  consume queued input.
+- Input: 64 KiB of credited user input per view. The controller reserves additional
+  bounded space for protocol replies (combined pending-input guard: 256 KiB).
+  Reads pause at 128 KiB of pending input, leaving room for an already credited
+  user batch and the parser tail. Large pastes alone do not pause output reads.
+  The remote PTY manager returns user credit after its pending input drains.
 - Local IPC queues: bounded to accommodate base64 framing; aggregate queue
   guard: 4 MiB per process/group. Eight live sessions keep the credit budgets
   within the intended aggregate envelope. Exceeding guards fails explicitly.
@@ -166,6 +179,11 @@ unframed input. Managed application queries still use their own view path.
 Credit acknowledges terminal-kernel acceptance rather than a rendered frame.
 Kitty's normal PTY buffering and parser backpressure remain part of the path.
 No bytes are silently discarded to make switching or flooding appear successful.
+Explicit cooperative detach discards obsolete presentation output by design; the
+application redraws a fresh display. Protocol traffic remains responsive, with
+reads paused if pending application input reaches its bounded queue. User keys
+during restoration are discarded, while complete terminal replies are forwarded.
+Input credits are returned once the accepted input batch has drained into the PTY.
 
 ## Lifecycle and failures
 
@@ -175,7 +193,7 @@ No bytes are silently discarded to make switching or flooding appear successful.
 | Native view focus | Update remote selection; explicit commands also identify origin |
 | Real resize | Resize that application's remote PTY |
 | Shell exit and output EOF | Send final output, drop its relay, choose a remaining session |
-| View closes | Relay EOF/watcher closes its remote session |
+| View closes | Ordinary closure ends the remote session; explicit cooperative detach invalidates its route first and preserves the PTY |
 | Last session exits / quit | Stop applications; drain queued relay output; close views; acknowledge shutdown; restore carrier |
 | Original SSH window closes | Local watcher closes owned views; SSH loss hangs up the remote controller |
 | Broker crashes | Local death callback cleans up views and registration; remote traffic fails or times out |
@@ -332,10 +350,13 @@ The deferred [detach analysis](detach-analysis.md) compares suspension, bounded
 output history and hybrid approaches, records their evidence and limitations,
 and lists the investigations needed before selecting an implementation.
 
-The chosen initial policy is to end all sessions on transport/controller loss.
+Cooperative session-display detach/attach is implemented with a live carrier;
+see the [usage guide](usage.md#detach-and-attach-a-display). Reattachment creates
+a fresh view route without changing the stable application session ID.
+The policy remains to end all sessions on transport/controller loss.
 A later implementation must separately design a durable remote PTY owner,
 authenticated reconnection, session discovery, and how fresh kitty screens recover
 state without kittyplex acquiring an emulator. An existing kitty process retaining
 views is different from reconnecting after those views have disappeared. Resolve
-that distinction before promising detach/reattach; do not silently change the
+that distinction before promising reconnection after carrier loss; do not silently change the
 current close-on-loss contract.

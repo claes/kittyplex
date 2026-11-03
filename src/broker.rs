@@ -299,16 +299,25 @@ impl Broker {
                 self.finishing = true;
                 self.closing = Some(Instant::now());
             }
-            "create" => self.local_message(&m)?,
+            "create" | "notice" => self.local_message(&m)?,
             "select" => self.local("select", m.id)?,
             "output" | "input_credit" => {
                 if let Some(v) = self.views.get_mut(&m.id) {
                     v.send(&m)?;
                 }
             }
+            "detach" => {
+                // Explicit detach discards obsolete relay output and frees the route
+                // before a replacement is created, including at the eight-view limit.
+                self.views.remove(&m.id);
+                self.local("detach", m.id)?;
+            }
             "drop" => {
                 if let Some(v) = self.views.get_mut(&m.id) {
                     v.send(&m)?;
+                } else {
+                    // Also close a window whose relay never completed its handshake.
+                    self.local("drop", m.id)?;
                 }
             }
             "heartbeat" => {}

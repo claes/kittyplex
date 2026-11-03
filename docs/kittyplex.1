@@ -40,7 +40,8 @@ The original terminal is the group's carrier and must remain open.
 No separate SSH connection per session, forwarding setup or patched Kitty is
 needed.
 .PP
-There is no detach or reattach support.
+Cooperating applications can detach and restore their display while the carrier
+remains open. There is no persistence after carrier or SSH loss.
 Connection loss or controller termination closes the group.
 .SH COMMANDS
 .SS No subcommand
@@ -146,10 +147,29 @@ Select the next or previous session in creation order, wrapping around.
 .TP
 .BI select " N"
 Select a session by its current one-based position.
-Positions shift as sessions exit; reordering Kitty tabs does not change them.
+Positions cover attached sessions and shift as sessions detach or exit;
+reordering Kitty tabs does not change them. Stable session IDs are separate.
 .TP
 .B status
 Print the selected position, ready-session count, session IDs and shell PIDs.
+.TP
+.B list
+List all sessions, including detached ones, in stable-ID order.
+Show ID, attachment state, Restore Display support, shell PID and
+operation/error.
+.TP
+.BI detach " ID"
+Close the session display while preserving its PTY and processes.
+The application must have enabled the experimental Restore Display protocol.
+Without an ID, detach the currently selected session
+(also used by the shortcut).
+.TP
+.BI attach " ID"
+Open a fresh tab for a detached session and request display restoration.
+Acknowledgement is asynchronous.
+Already attached or attaching sessions are rejected.
+Failed restoration preserves the application, closes the replacement view and
+allows retry. The carrier must remain open.
 .TP
 .B quit
 Close the entire group.
@@ -182,6 +202,10 @@ Horizontal split: create a session below.
 .B w
 Close the focused pane and its session.
 .TP
+.B d
+Detach the focused display; requires application Restore Display support.
+Unsupported applications remain attached and show an error.
+.TP
 .B ?
 Show local help over the focused pane.
 Escape dismisses help without reaching the application; Up/Down and
@@ -205,7 +229,12 @@ Send one literal prefix chord to the application.
 Management shortcuts apply only in managed views and end after one action.
 Ordinary Enter/Ctrl-M remains application input.
 Kitty's native pane/tab selection, resizing, movement and closure also work.
-Closing a tab closes all of its sessions.
+Closing a tab closes all of its sessions. Explicit detach preserves the session.
+Detached sessions count toward the eight-session limit and are skipped by
+next/previous/numbered navigation.
+Reattachment opens a new tab, not the old split.
+User keys are gated until restoration completes and preceding display bytes have
+been written into the terminal; terminal replies remain enabled.
 Repeated splits can create nested arrangements.
 Help does not create a session or pause application output.
 .SH KITTY ACTIONS

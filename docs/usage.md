@@ -48,6 +48,7 @@ view it from the checkout with `man -l docs/kittyplex.1`.
 | `v` | Vertical split: new session on the right |
 | `h` | Horizontal split: new session below |
 | `w` | Close this pane and its session |
+| `d` | Detach this display; requires application Restore Display support |
 | `?` | Show help; Escape dismisses it |
 | `n` / `p` | Next / previous session |
 | `1`–`9` | Select the session at that position, if present |
@@ -72,14 +73,16 @@ environment. Launchers choose the account's configured shell; bare `kittyplex`
 uses `$SHELL`, falling back to `/bin/sh`. Native Kitty focus changes are
 synchronized, including tab clicks and native Kitty next/previous-tab navigation.
 Kittyplex’s next/previous and numbered shortcuts stay within their own group and
-use session creation order; manually reordering tabs does not renumber sessions.
+use attached sessions in creation order; manually reordering tabs does not renumber them.
+Detached sessions retain their stable IDs but have no navigation position.
 Management commands identify their originating session.
 Closing a pane closes its remote session; closing a tab closes its sessions; exiting the last shell ends
 the group. Quitting closes only kittyplex’s session views, preserving unrelated
 tabs and ordinary windows you manually added.
 A group supports up to eight simultaneous sessions.
 
-**There is no detach/reattach or persistence after connection loss.** Closing the
+**Display detach/attach requires a cooperating application and a live carrier.**
+It does not provide persistence after connection loss. Closing the
 carrier, losing SSH, or losing the controller closes the group. Quit hangs up
 shells and foreground process groups and restores the original carrier termios.
 Jobs deliberately ignoring hangup can survive; SIGKILL cannot run cleanup.
@@ -94,6 +97,65 @@ From a managed shell, `kittyplex ctl status` shows the group state, and
 `kittyplex ctl split right` and `kittyplex ctl split below` split the currently
 selected session, even when the command runs in a different session. Use `kittyplex ctl --help` or
 `man kittyplex` for all control commands and explicit socket selection.
+
+## Detach and attach a display
+
+Keep a control shell in one session and launch a cooperating application in another.
+Press **Ctrl-Shift-M**, release it, then **d** in the application view to detach.
+The view closes while its application, shell and PTY remain alive. An ordinary
+pane close still terminates the session. Unsupported applications, including a
+plain shell, cannot detach; the shortcut reports an error and leaves the view open.
+
+From the control shell:
+
+```sh
+kittyplex ctl list
+kittyplex ctl detach 2    # Command equivalent; use an ID from list
+kittyplex ctl attach 2
+```
+
+`list` includes attached and detached sessions, sorted by stable session ID, with
+Restore Display support, shell PID and pending restore/error information. The
+`detach 2` example is an alternative to the shortcut, not an additional step.
+`attach 2` asynchronously opens a fresh tab for the same session. It applies the
+new dimensions and requests restoration before accepting user keys; terminal
+replies remain enabled. Completion means ordered delivery into the terminal,
+not an acknowledgement of pixels rendered on screen. Failed restoration closes
+the replacement view, preserves the application and reports the error; retry
+`attach` after resolving it. An already attached/attaching session is rejected.
+
+Detached sessions count toward the eight-session limit. All views can be detached
+while the carrier remains open. With no control shell visible, run commands in
+another terminal on the same host/account using `kittyplex ctl --socket PATH`;
+record `printf '%s\n' "$KITTYPLEX_SOCKET"` before detaching the last view.
+Carrier/SSH loss still terminates the group. Split layout is not restored:
+reattachment always creates a new tab.
+
+### Try the image demo through Kittyplex
+
+From the repository root in Kitty:
+
+```sh
+kittyplex start
+```
+
+Keep the first shell for management. Press Ctrl-Shift-M then `t` to open another
+session, return to this repository directory if necessary, and run:
+
+```sh
+./scripts/image-demo.sh
+```
+
+The script builds and launches the image demo in the current terminal. It accepts
+demo options, for example `./scripts/image-demo.sh --seed 7`.
+Press `i` to generate images, note the displayed image number and application PID,
+then Ctrl-Shift-M followed by `d`. In the control shell, run `kittyplex ctl list`
+and `kittyplex ctl attach ID` using the demo session's ID. The same PID restores
+the selected image; `i` generates another and `q` returns to the original shell.
+A registration is revoked if its foreground terminal job changes, preventing
+a crashed application from leaving its shell marked as supported. The binary and matching Kitty integration must both include this feature; after
+installing updated integration, restart Kitty. For SSH, build/install the demo
+on the target where its application runs.
 
 ## Try the isolated demo
 

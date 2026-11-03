@@ -78,6 +78,16 @@ implemented; advanced keyboard, colors, pointer, text sizing, shell metadata,
 effects and saved mode-stack profiles remain later work. Basic presentation uses
 an alternate screen and hidden cursor, with a known default terminal baseline.
 
+## Run inside Kittyplex
+
+Kittyplex implements the controller side for explicit session-display detach/attach
+while its carrier remains connected. Follow the [Kittyplex walkthrough](usage.md#try-the-image-demo-through-kittyplex):
+run `./scripts/image-demo.sh` from the repository root in a managed shell,
+press Ctrl-Shift-M then `d`, list
+sessions with `kittyplex ctl list`, and run `kittyplex ctl attach ID` from a control
+shell. Omit `--protocol=off`. This uses Kittyplex's actual transport and view lifecycle;
+the independent guided walkthrough above exercises its own controller instead.
+
 ## Detach and restore an image
 
 Run these commands inside `nix develop`, from the repository root. The parent

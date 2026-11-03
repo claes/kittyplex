@@ -88,6 +88,11 @@ impl Session {
         })
     }
 
+    pub fn foreground(&self) -> libc::pid_t {
+        // The registration belongs to the foreground terminal job, not its shell.
+        unsafe { libc::tcgetpgrp(self.as_raw_fd()) }
+    }
+
     pub fn pid(&self) -> u32 {
         self.child.id()
     }

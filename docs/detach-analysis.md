@@ -1,12 +1,13 @@
 # Detach and reattachment analysis
 
-Status: **deferred research, not an implementation commitment**. Recorded
-2026-11-01. No persistence approach, CLI, protocol extension, buffer size or
-suspension backend was selected. The user chose to set this work aside and retain
-the analysis for a later investigation.
+Status: **historical research; broader persistence remains deferred**. Recorded
+2026-11-01, updated 2026-11-02. No strategy for surviving carrier/controller loss,
+retaining terminal history or suspending applications has been selected.
 
-The implemented behavior remains unchanged: transport/controller loss closes the
-group, and detach/reattach is not supported. See the
+Update: cooperative session-display detach/attach is now implemented while the
+carrier remains open; see the [usage guide](usage.md#detach-and-attach-a-display).
+Transport/controller loss still closes the group. The broader persistence and
+fallback approaches below remain research rather than implemented guarantees. See the
 [current lifecycle contract](original-terminal-carrier.md#lifecycle-and-failures).
 This document owns the deferred options and their tradeoffs; detailed cooperative
 recovery research lives in the [protocol analysis](terminal-recovery-protocol.md). The
@@ -44,8 +45,8 @@ experiment, and proposed behavior. No complete persistence prototype was built.
 
 | Evidence | What it establishes | What it does not establish |
 | --- | --- | --- |
-| Current source inspection | The remote controller owns application PTY masters; dropping sessions performs hangup/reaping cleanup; carrier/broker loss currently closes local views | That existing lifecycle code can already detach safely |
-| Current delivery-credit handling | The controller gates application-PTY reads on available credit; the relay returns credit after writes into the local terminal endpoint | Safe detach, pending-data preservation across attachment loss, a Kitty parser checkpoint or rendered-frame acknowledgement |
+| Source inspection at the research baseline | The remote controller owns application PTY masters; dropping sessions performs hangup/reaping cleanup; carrier/broker loss currently closes local views | That existing lifecycle code can already detach safely |
+| Delivery-credit handling at the research baseline | The controller gates application-PTY reads on available credit; the relay returns credit after writes into the local terminal endpoint | Safe detach, pending-data preservation across attachment loss, a Kitty parser checkpoint or rendered-frame acknowledgement |
 | Small PTY suspension experiment during the discussion | A known child was confirmed stopped, generated no new output during the observation after draining, retained its PTY geometry, and resumed output with the same PID | Whole-workspace freezing, nonempty-backlog recovery, SSH disconnect handling, or display recovery |
 | Linux signal, freezer, terminal and write documentation | Mechanisms and their limitations, discussed below | Their availability or correctness for a particular deployment/workload |
 | Kitty API/source inspection against the implementation baseline | Text/format/cursor extraction and window launch metadata exist; no complete supported screen/parser/graphics checkpoint was established | That no future or private Kitty implementation could provide one |

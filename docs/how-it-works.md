@@ -407,9 +407,9 @@ filesystem-dependent transfer methods are covered by the
 
 ## 9. Backpressure and process teardown
 
-All sessions share the connection and finite processing capacity. If a downstream
-endpoint cannot accept more data, kittyplex bounds its queues and slows upstream
-producers instead of discarding output. Relays acknowledge consumption after
+All sessions share the connection and finite processing capacity. For attached
+views, if a downstream endpoint cannot accept more data, kittyplex bounds its
+queues and slows upstream producers while preserving output. Relays acknowledge consumption after
 writing bytes into their local terminal endpoint; that does not mean a physical
 display frame has been rendered. The exact budgets and scheduling policy are in
 [flow control](original-terminal-carrier.md#flow-control-and-scheduling), with
@@ -421,6 +421,17 @@ carrier; a Kitty watcher supplies another close notification. The controller
 removes the corresponding application session and performs hangup/reaping cleanup.
 In the other direction, a shell exit causes the controller to send final output
 before asking the relay to close.
+
+Explicit cooperative detach is separate from ordinary closure. The controller
+removes the attachment route before closing its view, retaining the session and
+PTY. Each reattachment allocates a fresh route ID, so late events from the old
+view cannot terminate or feed the replacement. Session IDs exposed by `ctl list`
+and `KITTYPLEX_SESSION` remain stable; the local view's internal routing ID may
+change. Detached sessions continue to be read, with obsolete presentation bytes
+discarded and Restore Display frames handled by the controller. A replacement
+view reports its dimensions, receives a marked restore stream and returns normal
+delivery credits before user input is ungated. See the
+[display detach/attach guide](usage.md#detach-and-attach-a-display).
 
 Explicit group shutdown coordinates the controller, broker, relays and Kitty
 integration before restoring the carrier terminal settings. The original login

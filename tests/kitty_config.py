@@ -60,7 +60,7 @@ class MappingHarness(Mappings):
 class MappingTests(unittest.TestCase):
     def test_all_management_actions_exit_mode(self):
         expected = {"c": "new", "t": "new", "v": "split right", "h": "split below",
-                    "n": "next", "p": "previous", "q": "quit"}
+                    "n": "next", "p": "previous", "q": "quit", "d": "detach"}
         expected.update({str(i): f"select {i}" for i in range(1, 10)})
         for key, command in expected.items():
             with self.subTest(key=key):

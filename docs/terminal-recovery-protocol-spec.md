@@ -479,6 +479,14 @@ the protocol alone does not guarantee arbitrary suspension or queue-clearing saf
 
 ## 10. Implementation rules and examples
 
+Kittyplex implements explicit cooperative session-display detach/attach while its
+carrier remains connected, using the same wire codec as the reference demo.
+Its [interactive walkthrough](usage.md#try-the-image-demo-through-kittyplex) covers
+launch, shortcut detachment, session listing and restoration into a fresh tab.
+This integration does not add persistence after carrier loss or prove arbitrary
+job-control/queue-flush recovery; the independent exerciser remains the broader
+protocol fault-testing tool.
+
 Controller policy handles deadlines, failure detection, buffering and fallback.
 It must preserve the resources needed by a fallback before discarding them.
 Failed restoration must not silently inject Ctrl-L or signals, replay old effects,

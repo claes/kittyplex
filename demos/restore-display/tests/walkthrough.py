@@ -42,16 +42,21 @@ class Arguments(unittest.TestCase):
             bin_dir.mkdir()
             capture = root / 'capture.json'
             fake_nix = bin_dir / 'nix'
-            fake_nix.write_text("#!/usr/bin/env python3\nimport json, os\nfrom pathlib import Path\nimport sys\nsource = next(a for a in sys.argv[1:] if a.startswith('path:'))\nsource = Path(source[5:].rsplit('#', 1)[0])\nassert (source / 'demos/restore-display/walkthrough.py').is_file()\nassert (source / 'demos/restore-display/Cargo.lock').is_file()\nassert not (source / 'target').exists()\nassert not (source / 'demos/restore-display/target').exists()\nPath(os.environ['CAPTURE']).write_text(json.dumps({'source': str(source), 'args': sys.argv[1:]}))\n")
+            fake_nix.write_text("#!/usr/bin/env python3\nimport json, os\nfrom pathlib import Path\nimport sys\nsource = next(a for a in sys.argv[1:] if a.startswith('path:'))\nsource = Path(source[5:].rsplit('#', 1)[0])\nassert (source / 'demos/restore-display/walkthrough.py').is_file()\nassert (source / 'demos/restore-display/Cargo.lock').is_file()\nassert (source / 'demos/restore-display/src/codec.rs').is_file()\nassert (source / 'src/restore.rs').is_file()\nassert not (source / 'target').exists()\nassert not (source / 'demos/restore-display/target').exists()\nPath(os.environ['CAPTURE']).write_text(json.dumps({'source': str(source), 'args': sys.argv[1:]}))\n")
             fake_nix.chmod(0o700)
-            launcher = ROOT.parents[1] / 'scripts/restore-display-demo.sh'
-            result = subprocess.run([launcher, '--bin-dir', 'a path with spaces'], cwd=root,
-                                    env=dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
-                                             CAPTURE=str(capture)), capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr.decode())
-            recorded = json.loads(capture.read_text())
-            self.assertEqual(recorded['args'][-3:], ['--', '--bin-dir', 'a path with spaces'])
-            self.assertFalse(Path(recorded['source']).exists(), 'launcher left its source snapshot behind')
+            for script, args in [('restore-display-demo.sh', ['--bin-dir', 'a path with spaces']),
+                                 ('demo.sh', ['--features']),
+                                 ('image-demo.sh', ['--seed', '7'])]:
+                with self.subTest(script=script):
+                    launcher = ROOT.parents[1] / 'scripts' / script
+                    result = subprocess.run([launcher, *args], cwd=root,
+                                            env=dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
+                                                     CAPTURE=str(capture)), capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr.decode())
+                    recorded = json.loads(capture.read_text())
+                    self.assertEqual(recorded['args'][-(len(args) + 1):], ['--', *args])
+                    self.assertFalse(Path(recorded['source']).exists(), 'launcher left its source snapshot behind')
+
 
 
 @unittest.skipUnless(shutil.which('kitty') and shutil.which('Xvfb'), 'real Kitty/Xvfb unavailable')

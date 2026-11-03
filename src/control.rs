@@ -17,6 +17,9 @@ pub enum Action {
     Previous,
     Select(usize),
     Status,
+    List,
+    Detach(Option<u64>),
+    Attach(u64),
     Quit,
 }
 
@@ -30,6 +33,20 @@ impl Action {
             ["next"] => Ok(Self::Next),
             ["previous"] => Ok(Self::Previous),
             ["status"] => Ok(Self::Status),
+            ["list"] => Ok(Self::List),
+            ["detach"] => Ok(Self::Detach(None)),
+            [verb @ ("detach" | "attach"), id] => {
+                let id = id
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|id| *id > 0)
+                    .ok_or_else(|| invalid("expected a positive session ID"))?;
+                Ok(if *verb == "detach" {
+                    Self::Detach(Some(id))
+                } else {
+                    Self::Attach(id)
+                })
+            }
             ["quit"] => Ok(Self::Quit),
             ["select", number] => number
                 .parse()
@@ -38,7 +55,7 @@ impl Action {
                 .map(Self::Select)
                 .ok_or_else(|| invalid("select requires a positive session position")),
             _ => Err(invalid(
-                "expected new, split right, split below, next, previous, select N, status, or quit",
+                "expected new, split right, split below, next, previous, select N, status, list, detach ID, attach ID, or quit",
             )),
         }
     }
@@ -228,11 +245,19 @@ mod tests {
             "split left",
             "split right extra",
             "next\nquit",
+            "attach",
+            "attach 0",
+            "detach -1",
+            "detach 2 extra",
         ] {
             assert!(Action::parse(request).is_err(), "{request:?}");
         }
         assert_eq!(Action::parse("select 9").unwrap(), Action::Select(9));
         assert_eq!(Action::parse("next").unwrap(), Action::Next);
+        assert_eq!(Action::parse("list").unwrap(), Action::List);
+        assert_eq!(Action::parse("detach").unwrap(), Action::Detach(None));
+        assert_eq!(Action::parse("detach 3").unwrap(), Action::Detach(Some(3)));
+        assert_eq!(Action::parse("attach 3").unwrap(), Action::Attach(3));
         assert_eq!(Action::parse("split right").unwrap(), Action::SplitRight);
         assert_eq!(Action::parse("split below").unwrap(), Action::SplitBelow);
     }

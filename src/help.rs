@@ -19,7 +19,7 @@ With no subcommand, start the controller here, including after an SSH login.
 Install the Kitty integration locally and kittyplex on each target first.
 Ctrl-Shift-M, then ? shows shortcuts; t/c opens a tab, v/h splits, w closes.
 Use n/p/1-9 to select, q to quit; repeat the prefix to send it.
-Connection loss closes the group. Detach/reattach is not supported.
+Connection loss closes the group. Cooperative sessions can detach/attach displays.
 
 Run 'kittyplex COMMAND --help' for command help, or 'man kittyplex' for details.
 Installation: https://github.com/claes/kittyplex/blob/master/docs/integration-instructions.md
@@ -98,6 +98,9 @@ Commands:
   previous     Select the previous session
   select N     Select a session by its current 1-based position
   status       Print selection, ready sessions, IDs and shell PIDs
+  list         List all sessions, including detached ones, by stable ID
+  detach ID    Detach a session display (requires Restore Display support)
+  attach ID    Open a fresh tab and restore the detached session display
   quit         Close the entire group
 
 Options:
@@ -105,7 +108,8 @@ Options:
   -h, --help         Show this help without connecting to a socket
 
 Run from a managed shell, or supply its controller socket explicitly.
-Positions follow creation order and shift when sessions exit.
+Positions follow attached sessions in creation order; IDs remain stable.
+Detach/attach requires the carrier connection to stay open.
 Example: kittyplex ctl status
 See kittyplex(1) for environment and lifecycle details.
 ";

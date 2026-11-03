@@ -1,4 +1,4 @@
-//! Bounded carrier and local IPC framing. Application bytes are never interpreted.
+//! Bounded carrier and local IPC framing. Presentation bytes pass through; Restore Display frames are handled by the controller.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;

@@ -52,8 +52,11 @@ nix develop --command env KITTYPLEX_TEST_RTT_MS=100 ./scripts/test.sh
 The independent [minimal image demo and exerciser](restore-display-demo.md) live in
 `demos/restore-display`. The main verification script also builds its two executables
 and runs its unit, private-PTY and isolated Kitty/Xvfb tests. The separate
-`nix build path:.#restore-display` package does not enable production detachment in
-Kittyplex. See the walkthrough for a manual fresh-display demonstration.
+`nix build path:.#restore-display` package supplies the reference application.
+Kittyplex also implements cooperative display detach/attach; see the
+[interactive walkthrough](usage.md#try-the-image-demo-through-kittyplex). The real
+Kitty/SSH suite verifies restored image bytes, unchanged application PID, repeated
+attachments and rejection of stale view events.
 
 ## Working on this project with Codex
 

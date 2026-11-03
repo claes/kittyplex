@@ -18,6 +18,7 @@ class Help(Handler):
             "v       Vertical split (new pane on the right)",
             "h       Horizontal split (new pane below)",
             "w       Close this pane and its session",
+            "d       Detach this display (requires Restore Display)",
             "n / p   Next / previous session in the group",
             "1-9     Select a session in creation order",
             "q       Close the entire group",

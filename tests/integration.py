@@ -242,6 +242,172 @@ class KittySSHCase(unittest.TestCase):
 
 
 class CarrierTests(KittySSHCase):
+    def controller_socket(self):
+        path = self.fixture.directory / "controller-path"
+        self.send(self.first, "printf '%s' \"$KITTYPLEX_SOCKET\" > " + shlex.quote(str(path)) + "\n")
+        self.wait_for(lambda: path.exists() and path.read_text())
+        return path.read_text()
+
+    def ctl(self, socket_path, *args, check=True):
+        return subprocess.run([BINARY, "ctl", "--socket", socket_path, *map(str, args)],
+                              capture_output=True, text=True, timeout=5, check=check)
+
+    def test_restore_display_demo_detach_list_attach(self):
+        demo = ROOT / "demos/restore-display/target/debug/restore-display-demo-rust-direct"
+        self.assertTrue(demo.exists(), "build the Restore Display demo first")
+        control = self.controller_socket()
+        self.assertIn("1  attached  unsupported", self.ctl(control, "list").stdout)
+        rejected = self.ctl(control, "detach", 1, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("has not enabled", rejected.stderr)
+        second = self.create(self.first)
+        log = self.fixture.directory / "demo.log"
+        self.send(second, shlex.join([str(demo), "--log-file", str(log)]) + "\n")
+        self.wait_text(second, "image #1")
+        self.wait_for(lambda: "2  attached  supported" in self.ctl(control, "list").stdout)
+        self.send(second, "iii")
+        self.wait_text(second, "image #4")
+        original_text = self.text(second)
+        import re
+        pid = int(re.search(r"PID (\d+)", original_text).group(1))
+        original_hash = self.wait_for(lambda: self.probe(second, "graphics", 1).get("sha256"))
+        old_route = next(w for w in self.views() if w["id"] == second)["user_vars"]["kittyplex_session"]
+        # Mapping tests dispatch the prefix/d keys. Here exercise its kitten route;
+        # Kitty's send-key RC command deliberately bypasses keyboard mappings.
+        self.manage(second, "detach")
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.assertIn("2  detached  supported", self.ctl(control, "list").stdout)
+        self.assertTrue(Path(f"/proc/{pid}").exists())
+        for attempt in range(3):
+            self.ctl(control, "attach", 2)
+            self.wait_for(lambda: len(self.views()) == 2)
+            view = next(w for w in self.views() if w["id"] != self.first)
+            second = view["id"]
+            self.assertNotEqual(view["user_vars"]["kittyplex_session"], old_route)
+            self.assertEqual(view["user_vars"]["kittyplex_session_id"], "2")
+            self.wait_text(second, f"PID {pid}")
+            self.wait_text(second, "image #4")
+            self.wait_for(lambda: self.probe(second, "graphics", 1).get("sha256") == original_hash)
+            self.wait_for(lambda: "restoring" not in self.ctl(control, "list").stdout)
+            self.assertNotEqual(self.ctl(control, "attach", 2, check=False).returncode, 0)
+            self.assertNotEqual(self.ctl(control, "attach", 9999, check=False).returncode, 0)
+            # A delayed close notification from the previous generation must be harmless.
+            window = next(w for w in self.views() if w["id"] == second)
+            endpoint = window["user_vars"]["kittyplex_socket"]
+            group = window["user_vars"]["kittyplex_group"]
+            event = dict(v=2, g=group, seq=0, kind="close", id=int(old_route), data="", n=0,
+                         rows=0, cols=0, pixel_width=0, pixel_height=0)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+                sock.sendto(json.dumps(event).encode(), endpoint)
+            self.assertIn("2  attached  supported", self.ctl(control, "list").stdout)
+            old_route = view["user_vars"]["kittyplex_session"]
+            if attempt < 2:
+                self.ctl(control, "detach", 2)
+                self.wait_for(lambda: len(self.views()) == 1)
+        self.send(second, "i")
+        self.wait_text(second, "image #5")
+        self.wait_for(lambda: self.probe(second, "graphics", 1).get("sha256") != original_hash)
+        self.send(second, "q")
+        self.wait_text(second, "remote session 2")
+        self.wait_for(lambda: "2  attached  unsupported" in self.ctl(control, "list").stdout)
+        self.assertNotEqual(self.ctl(control, "detach", 2, check=False).returncode, 0)
+        self.send(self.first, "echo CONTROL_STILL_ALIVE\n")
+        self.wait_text(self.first, "CONTROL_STILL_ALIVE")
+
+    def test_restore_display_all_detached_input_gate_and_resize(self):
+        demo = ROOT / "demos/restore-display/target/debug/restore-display-demo-rust-direct"
+        control = self.controller_socket()
+        self.send(self.first, shlex.join([str(demo), "--restore-behavior", "delay",
+                                        "--restore-delay-ms", "1200"]) + "\n")
+        self.wait_text(self.first, "image #1")
+        self.wait_for(lambda: "1  attached  supported" in self.ctl(control, "list").stdout)
+        image_hash = self.wait_for(lambda: self.probe(self.first, "graphics", 1).get("sha256"))
+        self.ctl(control, "detach", 1)
+        self.wait_for(lambda: not self.views())
+        self.assertIn("1  detached  supported", self.ctl(control, "list").stdout)
+        carrier = next(w for w in self.windows() if "kittyplex_session" not in w.get("user_vars", {}))
+        self.rpc("resize-os-window", dict(match=f'id:{carrier["id"]}', action="resize",
+                                         unit="cells", width=100, height=35))
+        self.ctl(control, "attach", 1)
+        self.wait_for(lambda: len(self.views()) == 1)
+        self.first = self.views()[0]["id"]
+        self.wait_for(lambda: "restoring" in self.ctl(control, "list").stdout)
+        self.send(self.first, "iiii")
+        self.wait_text(self.first, "image #1")
+        self.wait_for(lambda: "restoring" not in self.ctl(control, "list").stdout)
+        self.wait_for(lambda: self.probe(self.first, "graphics", 1).get("sha256") == image_hash)
+        self.assertNotIn("image #5", self.text(self.first))
+        self.send(self.first, "i")
+        self.wait_text(self.first, "image #2")
+        # Abrupt death must not leave the shell advertising the old app's support.
+        import re
+        pid = int(re.search(r"PID (\d+)", self.text(self.first)).group(1))
+        os.kill(pid, signal.SIGKILL)
+        self.wait_text(self.first, "remote session 1")
+        self.wait_for(lambda: "1  attached  unsupported" in self.ctl(control, "list").stdout)
+        self.assertNotEqual(self.ctl(control, "detach", 1, check=False).returncode, 0)
+
+    def test_restore_display_failure_preserves_application_and_allows_retry(self):
+        demo = ROOT / "demos/restore-display/target/debug/restore-display-demo-rust-direct"
+        control = self.controller_socket()
+        for behavior, expected in [("refuse", "declined"), ("stall", "timed out")]:
+            second = self.create(self.first)
+            status = dict(item.split("=", 1) for item in self.ctl(control, "status").stdout.split())
+            session_id = max(map(int, status["ids"].split(",")))
+            log = self.fixture.directory / f"{behavior}.log"
+            self.send(second, shlex.join([str(demo), "--features", "text", "--restore-behavior", behavior,
+                                         "--log-file", str(log)]) + "\n")
+            self.wait_text(second, "image #1")
+            import re
+            pid = int(re.search(r"PID (\d+)", self.text(second)).group(1))
+            self.wait_for(lambda: f"{session_id}  attached  supported" in self.ctl(control, "list").stdout)
+            self.ctl(control, "detach", session_id)
+            self.wait_for(lambda: len(self.views()) == 1)
+            for _ in range(2):
+                self.ctl(control, "attach", session_id)
+                self.wait_for(lambda: expected in self.ctl(control, "list").stdout)
+                self.wait_for(lambda: len(self.views()) == 1)
+                self.assertIn(f"{session_id}  detached  supported", self.ctl(control, "list").stdout)
+                self.assertTrue(Path(f"/proc/{pid}").exists())
+            os.kill(pid, signal.SIGKILL)
+            self.wait_for(lambda: f"{session_id}  detached  unsupported" in self.ctl(control, "list").stdout)
+            self.assertNotEqual(self.ctl(control, "attach", session_id, check=False).returncode, 0)
+            # The first run's session has no cooperating renderer now. End its shell
+            # using the recorded stable shell PID; create another for the next case.
+            status = dict(item.split("=", 1) for item in self.ctl(control, "status").stdout.split())
+            pids = dict(zip(status["ids"].split(","), status["pids"].split(",")))
+            os.kill(int(pids[str(session_id)]), signal.SIGHUP)
+            self.wait_for(lambda: f"{session_id}  detached" not in self.ctl(control, "list").stdout)
+
+    def test_detached_session_limit_navigation_and_immediate_attach(self):
+        demo = ROOT / "demos/restore-display/target/debug/restore-display-demo-rust-direct"
+        control = self.controller_socket()
+        second = self.create(self.first)
+        self.send(second, shlex.join([str(demo), "--features", "text"]) + "\n")
+        self.wait_text(second, "image #1")
+        for _ in range(6):
+            self.manage(self.first, "new")
+        self.wait_for(lambda: len(self.views()) == 8)
+        self.wait_for(lambda: "sessions=8" in self.ctl(control, "status").stdout)
+        self.ctl(control, "detach", 2)
+        self.wait_for(lambda: len(self.views()) == 7)
+        self.assertNotEqual(self.ctl(control, "new", check=False).returncode, 0)
+        self.ctl(control, "select", 2)
+        self.wait_for(lambda: any(w["id"] == self.active_window_id()
+                                 and w["user_vars"]["kittyplex_session_id"] == "3" for w in self.views()))
+        for _ in range(3):
+            self.ctl(control, "attach", 2)
+            view = self.wait_for(lambda: next((w for w in self.views()
+                if w["user_vars"]["kittyplex_session_id"] == "2" and w["id"] != second), None))
+            second = view["id"]
+            self.wait_text(second, "image #1")
+            self.wait_for(lambda: "restoring" not in self.ctl(control, "list").stdout)
+            self.assertEqual(len(self.views()), 8)
+            self.ctl(control, "detach", 2)
+            # Deliberately do not wait for the previous view's close callback.
+        self.wait_for(lambda: len(self.views()) == 7)
+        self.assertIn("2  detached  supported", self.ctl(control, "list").stdout)
+
     def test_startup_instructions_stay_in_carrier_and_appear_once(self):
         carrier = next(w["id"] for w in self.windows()
                        if "kittyplex_session" not in w.get("user_vars", {}))
@@ -252,6 +418,7 @@ class CarrierTests(KittySSHCase):
             "release it, then press:",
             "  t / c   Create and select a session tab",
             "  v / h   Split right / below; w closes this pane",
+            "  d       Detach this display (application must support Restore Display)",
             "  ?       Show help (Escape dismisses it)",
             "  n / p   Next / previous session",
             "  1-9     Select an existing session by position",
@@ -264,7 +431,7 @@ class CarrierTests(KittySSHCase):
         end = text.index(instructions[-1]) + len(instructions[-1])
         lines = text[start:end].splitlines()
         self.assertEqual(lines, instructions)
-        self.assertLessEqual(len(lines), 12)
+        self.assertLessEqual(len(lines), 13)
 
         second = self.create(self.first)
         for line in instructions:

@@ -27,7 +27,7 @@ def probe_nonce(value):
 
 
 KINDS = {"bootstrap", "create", "select", "output", "input_credit", "drop",
-         "heartbeat", "shutdown", "abort", "finish"}
+         "heartbeat", "shutdown", "abort", "finish", "notice", "detach"}
 FIELDS = {"v", "g", "seq", "kind", "id", "data", "n", "rows", "cols", "pixel_width", "pixel_height"}
 
 
@@ -142,6 +142,9 @@ def local(boss, m):
     if not carrier:
         emit(os.path.join(state["directory"], "events.sock"), event(m["g"], "lost"))
         return
+    if m["kind"] == "notice":
+        boss.show_error("kittyplex", m["data"])
+        return
     if m["kind"] == "create":
         if m["id"] in state["views"]:
             return
@@ -150,6 +153,7 @@ def local(boss, m):
             raise ValueError("maximum eight live views per group")
         endpoint = os.path.join(state["directory"], "events.sock")
         placement = m.get("data", "")
+        session_id = m["n"] if not placement and m["n"] else m["id"]
         target = carrier
         location = ["--type=tab", "--location=last"]
         if placement:
@@ -169,15 +173,21 @@ def local(boss, m):
             "--watcher=" + os.path.join(DIRECTORY, "kittyplex_watcher.py"),
             "--var=kittyplex_socket=" + endpoint,
             "--var=kittyplex_group=" + m["g"],
+            # kittyplex_session is the per-attachment route used by callbacks.
             "--var=kittyplex_session=" + str(m["id"]),
+            "--var=kittyplex_session_id=" + str(session_id),
             "--var=kittyplex_context=" + state["context"],
             state["binary"], "__view", state["directory"], m["g"], str(m["id"])])
         view = launch(boss, opts, cmd, target_tab=target.tabref(), rc_from_window=target)
         if view is None:
             raise ValueError("kitty did not create a session view")
         # Set an initial child title without pinning an override that blocks OSC 2.
-        view.title_changed(memoryview(("kittyplex " + str(m["id"])).encode()))
+        view.title_changed(memoryview(("kittyplex " + str(session_id)).encode()))
         state["views"][m["id"]] = view.id
+    elif m["kind"] in {"drop", "detach"}:
+        window = boss.window_id_map.get(state["views"].pop(m["id"], None))
+        if window:
+            boss.close_windows_no_confirm([window])
     elif m["kind"] == "select":
         window = boss.window_id_map.get(state["views"].get(m["id"]))
         if window:
@@ -253,7 +263,7 @@ def handle_result(args, answer, target_window_id, boss):
                 show_help(boss, window, args[2])
             return
         command = " ".join(args[1:])
-        if command not in {"new", "split right", "split below", "next", "previous", "quit"} and command not in {
+        if command not in {"new", "split right", "split below", "next", "previous", "quit", "detach"} and command not in {
             f"select {n}" for n in range(1, 10)
         }:
             raise ValueError("unknown management command")
